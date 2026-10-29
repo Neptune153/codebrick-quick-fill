@@ -12,7 +12,7 @@
 
 | 文件 | 说明 |
 |---|---|
-| `auto-answer.user.js` | 脚本本体（v1.4.1），ScriptCat / Tampermonkey / Violentmonkey 通用 |
+| `auto-answer.user.js` | 脚本本体（v1.4.2），ScriptCat / Tampermonkey / Violentmonkey 通用 |
 
 `@match` 已限定 `codebrick.tech`，别的网站不会加载。
 
@@ -105,7 +105,7 @@ CodeBrick 限每分钟 30 次答题，超了会挡一段时间。
 
 ## 版本管理
 
-这个目录本身就是一个 git 仓库（`main` 分支），当前版本 `v1.4.1`，版本号同步写在脚本头部的 `// @version`。
+这个目录本身就是一个 git 仓库（`main` 分支），当前版本 `v1.4.2`，版本号同步写在脚本头部的 `// @version`。
 
 ```bash
 # 看历史 / 看标签
@@ -117,7 +117,7 @@ git -C auto-answer add -A
 git -C auto-answer commit -m "改了什么"
 
 # 发版：改 // @version 后再打标签
-git -C auto-answer tag -a v1.4.2 -m "v1.4.2"
+git -C auto-answer tag -a v1.4.3 -m "v1.4.3"
 ```
 
 历史版本随时可以取回：

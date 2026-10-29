@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.4.1
+// @version      1.4.2
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -175,9 +175,11 @@
 
     .bd { padding: 8px 14px 13px; display: flex; flex-direction: column; gap: 10px;
           max-height: calc(100vh - 140px); overflow-y: auto; }
+    .bd > * { flex-shrink: 0; }
 
     /* 粘贴框 */
-    textarea.ans { width: 100%; height: 46px; resize: none; border: 0; border-radius: 4px; padding: 7px 9px;
+    textarea.ans { width: 100%; height: 54px; min-height: 54px; resize: none; overflow-y: auto;
+                   border: 0; border-radius: 4px; padding: 7px 9px;
                    background: #F1F1EE; color: #17181C; outline: none;
                    font: 500 12.5px/1.55 ${FONT}; letter-spacing: .14em; font-variant-numeric: tabular-nums; }
     textarea.ans::placeholder { letter-spacing: 0; color: #8A9099; font-weight: 400; }
@@ -392,7 +394,13 @@
       el.progI.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%';
     }
 
+    function autoGrow() {
+      el.ans.style.height = "auto";
+      el.ans.style.height = Math.min(el.ans.scrollHeight, 96) + "px";
+    }
+
     function syncAnswers() {
+      autoGrow();
       answers = parseAnswers(el.ans.value);
       renderCard();
       syncCount();
@@ -688,6 +696,11 @@
   function setOpen(open) {
     panel.host.style.display = open ? 'block' : 'none';
     badge.style.display = open ? 'none' : 'block';
+    if (open) {
+      // 隐藏状态下量不出高度，展开后按内容重新定一次输入框高度
+      panel.el.ans.style.height = 'auto';
+      panel.el.ans.style.height = Math.min(panel.el.ans.scrollHeight, 96) + 'px';
+    }
   }
   setOpen(false);
 
