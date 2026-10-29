@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.3.1
-// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题。点右下角「答」或按快捷键打开面板。
+// @version      1.4.0
+// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
 // @match        https://codebrick.tech/*
@@ -14,20 +14,25 @@
 /* ------------------------------------------------------------------
  * 用法
  *   1. 打开 https://www.codebrick.tech/ 的答题页（不用先点题目区域）
- *   2. 点右侧那个浮动的「答」圆块，或按 Alt + Shift + A，打开面板
- *   3. 把答案粘进输入框 → 点「单步」试一题 → 确认有反应再点「开始」
- *   4. 想停下：点「停止」，或按 Esc
+ *   2. 点左边那个浮动的「答」圆块，或按 Alt + Shift + A，打开面板
+ *   3. 把答案粘进输入框 → 下面会按题号排成一张答案卡，数一下是不是 40 个
+ *   4. 点「单步」试一题 → 确认有反应再点「开始」
+ *   5. 想停下：点「停止」，或按 Esc
+ *
+ * 面板
+ *   主界面只有「每题间隔」和三个按钮，其余参数都收在「设置」里。
+ *   答案卡按 10 列排，每 5 题隔开一点；点某一格可以 A→B→C→D 改答案。
  *
  * 限流
- *   CodeBrick 限「每分钟 30 次」答题。面板里的「每题间隔」控制节奏：
- *   默认 2200ms ≈ 27 题/分，40 题约 88 秒；调小会让「≈ N 题/分」变橙色。
+ *   CodeBrick 限「每分钟 30 次」答题。默认每题间隔 2200ms ≈ 27 题/分，
+ *   40 题约 90 秒。调小到 2000ms 以下右边会变红提醒。
  *   这个间隔是从"这一题开始按键"算起的总时长，不足会自动补足，
- *   所以字母后/Enter后/→后 三个等待只会拖慢单题，不会让总节奏超过设定值。
+ *   所以字母后/Enter后/→后 只会拖慢单题，不会让总节奏超过设定值。
  *
  * 快捷键
- *   默认 Alt + Shift + A。嫌冲突就在面板里点「快捷键」那一格，
+ *   默认 Alt + Shift + A。嫌冲突就在「设置」里点快捷键那一格，
  *   直接按下你想用的组合（要带 Ctrl/Alt/Shift 或 F1~F12），会被记住。
- *   不想用快捷键也行——点那个浮动的「答」圆块即可。
+ *   不想用快捷键也行——点「答」圆块即可。
  *
  * 说明
  *   - 按键是网页内部派发的合成事件（isTrusted = false）。
@@ -45,9 +50,12 @@
   window.__autoAnswerLoaded = true;
 
   const STORE = 'dsh-auto-answer-v1';
+  const EXPECT = 40;
   const LETTER_VK = { A: 65, B: 66, C: 67, D: 68 };
+  const FONT = '-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif';
 
   const state = { running: false, stop: false, current: 0, stepIndex: 0 };
+  let answers = [];
 
   /* ============ 快捷键（可改，存在本地） ============ */
 
@@ -65,7 +73,7 @@
       .replace(/^Digit/, '')
       .replace(/^Numpad/, 'Num');
     p.push(k);
-    return p.join('+');
+    return p.join(' + ');
   }
 
   function hotMatches(e) {
@@ -134,97 +142,186 @@
     return out.toUpperCase().replace(/[^A-D]/g, '').split('').filter(Boolean);
   }
 
-  /* ============ 界面 ============ */
+  // 每 5 个一组，中间空格——粘一长串也看得出第几题
+  function fmt(list) {
+    const out = [];
+    for (let i = 0; i < list.length; i += 5) out.push(list.slice(i, i + 5).join(''));
+    return out.join(' ');
+  }
+
+  /* ============ 样式 ============ */
 
   const CSS = `
     :host { all: initial; }
-    * { box-sizing: border-box; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
-    .box { width: 306px; background: #1f2430; color: #e8eaf0; border: 1px solid #3a4257;
-           border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12px; overflow: hidden; }
-    .hd { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
-          background: #2a3142; cursor: move; font-weight: 600; user-select: none; }
-    .hd .x { cursor: pointer; padding: 0 5px; color: #9aa3b8; font-size: 14px; line-height: 1; }
-    .hd .x:hover { color: #fff; }
-    .bd { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-    textarea { width: 100%; height: 56px; resize: vertical; background: #151a23; color: #e8eaf0;
-               border: 1px solid #3a4257; border-radius: 6px; padding: 6px; font-family: Consolas, monospace;
-               font-size: 12px; outline: none; }
-    textarea:focus { border-color: #2563eb; }
-    .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    .lab { color: #8f9bb5; }
-    input[type=number] { width: 52px; background: #151a23; color: #e8eaf0; border: 1px solid #3a4257;
-                         border-radius: 4px; padding: 2px 4px; font-size: 12px; outline: none; }
-    label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; color: #b8c1d9; }
-    input[type=checkbox] { accent-color: #2563eb; margin: 0; }
-    input.hot { flex: 1; background: #151a23; color: #e8eaf0; border: 1px solid #3a4257; border-radius: 4px;
-                padding: 3px 6px; font-size: 12px; outline: none; cursor: pointer; min-width: 0; }
-    input.hot:focus { border-color: #2563eb; }
-    button { flex: 1; cursor: pointer; padding: 6px 8px; border-radius: 6px; border: 1px solid #3a4257;
-             background: #2a3142; color: #e8eaf0; font-size: 12px; }
-    button:hover { background: #364058; }
-    button:active { transform: translateY(1px); }
-    button.go { background: #2563eb; border-color: #2563eb; font-weight: 600; }
-    button.go:hover { background: #1d4ed8; }
-    button.stop { background: #7f1d1d; border-color: #7f1d1d; }
-    button.stop:hover { background: #991b1b; }
-    button.ghost { flex: 0 0 auto; padding: 6px 10px; }
-    .status { min-height: 17px; color: #9fb4d8; line-height: 1.5; word-break: break-all; }
-    .tip { color: #6b7793; font-size: 11px; line-height: 1.5; }
+    * { box-sizing: border-box; }
+    .box { width: 320px; background: #fff; color: #17181C; border-radius: 4px;
+           box-shadow: 0 14px 34px rgba(20,22,28,.16), 0 2px 6px rgba(20,22,28,.08); /* taste-skill-ignore 浮动面板 */
+           font: 12px/1.5 ${FONT}; overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+    /* 标题条 */
+    .hd { display: flex; align-items: center; gap: 8px; padding: 11px 14px 9px; cursor: move; user-select: none; }
+    .ttl { font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+    .cnt { margin-left: auto; display: flex; align-items: baseline; gap: 3px; }
+    .cnt b { font-size: 19px; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+    .cnt i { font-style: normal; font-size: 11px; color: #6A6E78; }
+    .x { width: 18px; height: 18px; margin-left: 5px; border-radius: 3px; display: flex; align-items: center;
+         justify-content: center; color: #A6A9B0; cursor: pointer; font-size: 15px; line-height: 1; }
+    .x:hover { background: #F1F1EE; color: #17181C; }
+
+    /* 进度：只在跑的时候有底 */
+    .prog { height: 2px; background: transparent; }
+    .prog.run { background: #EDEDE9; }
+    .prog i { display: block; height: 100%; width: 0; background: #C8402F; transition: width .2s ease; }
+
+    .bd { padding: 8px 14px 13px; display: flex; flex-direction: column; gap: 10px;
+          max-height: calc(100vh - 140px); overflow-y: auto; }
+
+    /* 粘贴框 */
+    textarea.ans { width: 100%; height: 46px; resize: none; border: 0; border-radius: 4px; padding: 7px 9px;
+                   background: #F1F1EE; color: #17181C; outline: none;
+                   font: 500 12.5px/1.55 ${FONT}; letter-spacing: .14em; font-variant-numeric: tabular-nums; }
+    textarea.ans::placeholder { letter-spacing: 0; color: #8A9099; font-weight: 400; }
+    textarea.ans:focus { background: #fff; box-shadow: inset 0 0 0 2px #17181C; } /* taste-skill-ignore 焦点环 */
+
+    /* 答案卡：10 列，每 5 题之间留一条缝 */
+    .card { display: grid; grid-template-columns: repeat(5, 1fr) 5px repeat(5, 1fr);
+            column-gap: 1px; row-gap: 1px; }
+    .card.empty { display: block; padding: 12px 0 10px; text-align: center; color: #8A9099; font-size: 11.5px; }
+    .cell { display: flex; flex-direction: column; align-items: center; padding: 3px 0 4px; border-radius: 3px; cursor: pointer; }
+    .cell b { font-size: 9px; font-weight: 500; color: #7A808A; line-height: 1.3; font-variant-numeric: tabular-nums; }
+    .cell span { font-size: 14px; font-weight: 600; line-height: 1.25; }
+    .cell:hover { background: #F1F1EE; }
+    .cell.sent { opacity: .4; }
+    .cell.cur { background: #C8402F; }
+    .cell.cur b, .cell.cur span { color: #fff; }
+    .hint { font-size: 11px; color: #C8402F; line-height: 1.5; margin-top: -4px; }
+    .hint:empty { display: none; }
+
+    /* 行 */
+    .row { display: flex; align-items: center; gap: 6px; }
+    .lab { color: #6A6E78; font-size: 11.5px; }
+    .unit { color: #A6A9B0; font-size: 11px; }
+    input.num { width: 54px; background: #F1F1EE; border: 0; border-radius: 4px; padding: 5px 6px; outline: none;
+                color: #17181C; font: 600 12.5px/1.2 ${FONT}; font-variant-numeric: tabular-nums; text-align: center; }
+    input.num:focus { background: #fff; box-shadow: inset 0 0 0 2px #17181C; } /* taste-skill-ignore 焦点环 */
+    input.num::-webkit-outer-spin-button, input.num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input.num { -moz-appearance: textfield; appearance: textfield; }
+    .rate { margin-left: auto; font-size: 11px; color: #8A8D95; font-variant-numeric: tabular-nums; }
+    .rate.risky { color: #C8402F; }
+
+    /* 按钮 */
+    .btn { border: 0; border-radius: 4px; cursor: pointer; padding: 8px 10px;
+           font: 600 12.5px/1.1 ${FONT}; background: #EDEDE9; color: #17181C; transition: background .12s ease; }
+    .btn:hover { background: #E7E7E3; }
+    .btn:active { transform: translateY(1px); }
+    .btn:focus-visible { outline: 2px solid #C8402F; outline-offset: 1px; }
+    .btn[disabled] { cursor: default; opacity: .42; transform: none; }
+    .btn.primary { flex: 1.6; background: #17181C; color: #fff; }
+    .btn.primary:hover { background: #2C2E34; }
+    .btn.primary[disabled] { background: #B7B9BF; cursor: default; transform: none; }
+    .btn.wide { flex: 1; }
+    .btn.mute { background: transparent; color: #6A6E78; }
+    .btn.mute:hover { background: #F1F1EE; }
+    .btn.mute.on { background: #EDEDE9; color: #17181C; }
+
+    /* 设置 */
+    .more { display: flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0;
+            color: #6A6E78; font: 500 11.5px/1.4 ${FONT}; cursor: pointer; }
+    .more:hover { color: #17181C; }
+    .more .cv { font-size: 9px; transition: transform .15s ease; }
+    .more.open .cv { transform: rotate(180deg); }
+    .set { display: none; flex-direction: column; gap: 9px; padding: 11px 11px 12px; background: #F7F7F4;
+           border-radius: 4px; margin-top: -4px; }
+    .set.open { display: flex; }
+    .set .lab { min-width: 46px; }
+    label.cb { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: #3A3D44; font-size: 11.5px; }
+    input[type=checkbox] { width: 13px; height: 13px; margin: 0; accent-color: #17181C; }
+    input.hot { flex: 1; min-width: 0; background: #fff; border: 0; border-radius: 4px; padding: 5px 8px; outline: none;
+                color: #17181C; font: 500 11.5px/1.3 ${FONT}; text-align: center; cursor: pointer; }
+    input.hot:focus { box-shadow: inset 0 0 0 2px #17181C; } /* taste-skill-ignore 焦点环 */
+    .status { font-size: 11.5px; color: #6A6E78; line-height: 1.5; min-height: 17px; word-break: break-word; }
   `;
+
+  /* ============ 界面 ============ */
 
   function buildUI() {
     const host = document.createElement('div');
     host.id = 'dsh-auto-answer';
-    host.style.cssText = 'all:initial;position:fixed;top:80px;right:16px;z-index:2147483647;display:none;';
+    host.style.cssText = 'all:initial;position:fixed;top:88px;left:16px;z-index:2147483647;display:none;';
 
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
       <style>${CSS}</style>
       <div class="box">
-        <div class="hd"><span>答题键盘模拟</span><span class="x" title="收起（点「答」圆块或快捷键再打开）">×</span></div>
+        <div class="hd">
+          <span class="ttl">答题</span>
+          <span class="cnt"><b class="cntN">0</b><i class="cntT">题</i></span>
+          <span class="x" title="收起（点「答」圆块或快捷键再打开）">×</span>
+        </div>
+        <div class="prog"><i></i></div>
         <div class="bd">
-          <textarea class="ans" placeholder="粘贴答案：只认 A/B/C/D，空格、题号、换行自动忽略"></textarea>
+          <textarea class="ans" spellcheck="false" placeholder="粘贴答案，只认 A/B/C/D"></textarea>
+          <div class="card empty">粘贴后按题号排开</div>
+          <div class="hint"></div>
+
           <div class="row">
-            <span class="lab">字母后</span><input class="d1" type="number" value="150"><span class="lab">ms</span>
-            <span class="lab">Enter后</span><input class="d2" type="number" value="250"><span class="lab">ms</span>
-            <span class="lab">→后</span><input class="d3" type="number" value="800"><span class="lab">ms</span>
+            <span class="lab">每题间隔</span>
+            <input class="num gap" type="number" value="2200">
+            <span class="unit">毫秒</span>
+            <span class="rate">≈ 27 题/分</span>
           </div>
+
           <div class="row">
-            <span class="lab">每题间隔</span><input class="gap" type="number" value="2200"><span class="lab">ms</span>
-            <span class="lab">≈</span><span class="rate">27</span><span class="lab">题/分</span>
+            <button class="btn primary go">开始</button>
+            <button class="btn wide step">单步</button>
+            <button class="btn wide mute stop">停止</button>
           </div>
-          <div class="row">
-            <label title="网站若按 key==='A' 判断，勾上这个"><input class="up" type="checkbox">大写</label>
-            <label title="有些网站选完直接按 →，不需要 Enter"><input class="noenter" type="checkbox">不发Enter</label>
-            <label title="网站若自动跳题，按 → 会跳两题，勾上这个"><input class="noarrow" type="checkbox">不发→</label>
+
+          <button class="more"><span>设置</span><span class="cv">▾</span></button>
+
+          <div class="set">
+            <div class="row">
+              <span class="lab">字母后</span>
+              <input class="num d1" type="number" value="150"><span class="unit">毫秒</span>
+            </div>
+            <div class="row">
+              <span class="lab">Enter 后</span>
+              <input class="num d2" type="number" value="250"><span class="unit">毫秒</span>
+            </div>
+            <div class="row">
+              <span class="lab">→ 后</span>
+              <input class="num d3" type="number" value="800"><span class="unit">毫秒</span>
+            </div>
+            <div class="row">
+              <label class="cb" title="网站若按 key === 'A' 判断，勾上这个"><input class="up" type="checkbox">大写</label>
+              <label class="cb" title="有些网站选完直接按 →，不需要 Enter"><input class="noenter" type="checkbox">不发 Enter</label>
+              <label class="cb" title="网站若自动跳题，按 → 会跳两题，勾上这个"><input class="noarrow" type="checkbox">不发 →</label>
+            </div>
+            <div class="row">
+              <span class="lab">快捷键</span>
+              <input class="hot" type="text" readonly title="点这一格，然后按下你想用的组合键">
+            </div>
+            <div class="row">
+              <button class="btn wide selftest">自检</button>
+              <button class="btn wide reset">归零</button>
+            </div>
           </div>
-          <div class="row">
-            <span class="lab">快捷键</span>
-            <input class="hot" type="text" readonly title="点这里，然后按下你想用的组合键">
-          </div>
-          <div class="row">
-            <button class="go">开始</button>
-            <button class="step">单步</button>
-            <button class="stop">停止</button>
-          </div>
-          <div class="row">
-            <button class="selftest ghost">自检（敲一次 a）</button>
-            <button class="reset ghost">归零</button>
-          </div>
-          <div class="status">把答案粘进来，先「单步」试一题</div>
-          <div class="tip">把答案粘进来，先「单步」试一题，再「开始」跑全部。站点限 30 次/分，所以默认每题间隔 2200ms（≈27 题/分，40 题约 88 秒）</div>
+
+          <div class="status">先「单步」试一题，确认有反应再「开始」</div>
         </div>
       </div>
     `;
 
     const $ = (s) => root.querySelector(s);
     const el = {
-      ans: $('.ans'), d1: $('.d1'), d2: $('.d2'), d3: $('.d3'),
+      ans: $('.ans'), card: $('.card'), hint: $('.hint'),
+      cntN: $('.cntN'), cntT: $('.cntT'), prog: $('.prog'), progI: $('.prog i'),
       gap: $('.gap'), rate: $('.rate'),
+      d1: $('.d1'), d2: $('.d2'), d3: $('.d3'),
       up: $('.up'), noenter: $('.noenter'), noarrow: $('.noarrow'),
       go: $('.go'), step: $('.step'), stop: $('.stop'),
       selftest: $('.selftest'), reset: $('.reset'), status: $('.status'),
-      hd: $('.hd'), x: $('.x'), hot: $('.hot'),
+      hd: $('.hd'), x: $('.x'), hot: $('.hot'), more: $('.more'), set: $('.set'),
     };
     const setStatus = (t) => { el.status.textContent = t; };
 
@@ -235,10 +332,85 @@
           ans: el.ans.value,
           d1: el.d1.value, d2: el.d2.value, d3: el.d3.value, gap: el.gap.value,
           up: el.up.checked, noenter: el.noenter.checked, noarrow: el.noarrow.checked,
+          set: el.set.classList.contains('open'),
           hot: hot,
         }));
       } catch (e) { /* 隐私模式，忽略 */ }
     };
+
+    /* ---- 答案卡 ---- */
+    function renderCard() {
+      const list = answers;
+      el.card.textContent = '';
+      el.card.classList.toggle('empty', list.length === 0);
+      if (!list.length) {
+        el.card.textContent = '粘贴后按题号排开';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      list.forEach((ch, i) => {
+        const c = document.createElement('div');
+        c.className = 'cell';
+        c.dataset.i = String(i);
+        const col = i % 10;
+        // 每 5 题之间那条 5px 的缝占一列，所以要手动指定列
+        c.style.gridColumn = String(col + 1 + (col >= 5 ? 1 : 0));
+        const n = document.createElement('b');
+        n.textContent = String(i + 1);
+        const s = document.createElement('span');
+        s.textContent = ch;
+        c.append(n, s);
+        frag.appendChild(c);
+      });
+      el.card.appendChild(frag);
+    }
+
+    function setCounter(n, suffix) {
+      el.cntN.textContent = String(n);
+      el.cntT.textContent = suffix;
+    }
+
+    function syncCount() {
+      if (state.running) return;
+      setCounter(answers.length, '题');
+      el.hint.textContent = answers.length && answers.length !== EXPECT
+        ? `现在 ${answers.length} 题，不是 ${EXPECT} 题`
+        : '';
+    }
+
+    function paint(active) {
+      for (const c of el.card.children) {
+        const k = Number(c.dataset.i);
+        if (isNaN(k)) continue;
+        c.classList.toggle('cur', k === active);
+        c.classList.toggle('sent', active >= 0 && k < active);
+      }
+    }
+
+    function setProg(p) {
+      el.prog.classList.toggle('run', p > 0);
+      el.progI.style.width = Math.round(Math.max(0, Math.min(1, p)) * 100) + '%';
+    }
+
+    function syncAnswers() {
+      answers = parseAnswers(el.ans.value);
+      renderCard();
+      syncCount();
+    }
+
+    function readCfg() {
+      return {
+        d1: Math.max(0, Number(el.d1.value) || 0),
+        d2: Math.max(0, Number(el.d2.value) || 0),
+        d3: Math.max(0, Number(el.d3.value) || 0),
+        gap: Math.max(0, Number(el.gap.value) || 0),
+        upper: el.up.checked,
+        noEnter: el.noenter.checked,
+        noArrow: el.noarrow.checked,
+      };
+    }
+
+    /* ---- 恢复上次的配置 ---- */
     try {
       const raw = localStorage.getItem(STORE);
       if (raw) {
@@ -251,20 +423,12 @@
         el.up.checked = !!c.up;
         el.noenter.checked = !!c.noenter;
         el.noarrow.checked = !!c.noarrow;
+        if (c.set) { el.set.classList.add('open'); el.more.classList.add('open'); }
         if (c.hot && c.hot.code) hot = Object.assign({}, DEFAULT_HOT, c.hot);
       }
     } catch (e) { /* 忽略 */ }
     el.hot.value = hotLabel();
-
-    const readCfg = () => ({
-      d1: Math.max(0, Number(el.d1.value) || 0),
-      d2: Math.max(0, Number(el.d2.value) || 0),
-      d3: Math.max(0, Number(el.d3.value) || 0),
-      gap: Math.max(0, Number(el.gap.value) || 0),
-      upper: el.up.checked,
-      noEnter: el.noenter.checked,
-      noArrow: el.noarrow.checked,
-    });
+    syncAnswers();
 
     /* ---- 一轮按键：字母 → Enter → →；pad 时把这一题补足到「每题间隔」 ---- */
     async function oneQuestion(i, list, cfg, pad) {
@@ -298,56 +462,82 @@
       } catch (e) { /* 忽略 */ }
     }
 
+    function setRunning(on) {
+      el.go.disabled = on;
+      el.step.disabled = on;
+      el.stop.classList.toggle('on', on);
+      el.stop.disabled = !on;
+    }
+    setRunning(false);
+
     /* ---- 开始 ---- */
     async function runAll() {
       if (state.running) return;
-      const list = parseAnswers(el.ans.value);
+      syncAnswers();
+      const list = answers.slice();
       if (!list.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
 
       save();
       state.running = true;
       state.stop = false;
-      el.go.textContent = '运行中…';
+      state.current = 0;
+      setRunning(true);
+      el.go.textContent = '运行中';
+      setProg(0);
       blurPanel();
 
+      let stopped = false;
       for (let i = 0; i < list.length; i++) {
-        if (state.stop) break;
+        if (state.stop) { stopped = true; state.current = i; break; }
         state.current = i;
         const cfg = readCfg();
         const cyc = cfg.gap > 0 ? cfg.gap
           : cfg.d1 + (cfg.noEnter ? 0 : cfg.d2) + (cfg.noArrow ? 0 : cfg.d3);
         const rest = (list.length - 1 - i) * cyc;
-        setStatus(`第 ${i + 1}/${list.length} 题 → ${list[i]}` +
-          (rest > 500 ? `（约剩 ${Math.ceil(rest / 1000)} 秒）` : ''));
-        if (!(await oneQuestion(i, list, cfg, true))) break;
+        setCounter(i + 1, '/ ' + list.length);
+        paint(i);
+        setStatus(`第 ${i + 1}/${list.length} 题 · ${list[i]}` +
+          (rest > 800 ? ` · 约剩 ${Math.ceil(rest / 1000)} 秒` : ''));
+        if (!(await oneQuestion(i, list, cfg, true))) { stopped = true; break; }
+        setProg((i + 1) / list.length);
       }
 
-      const stopped = state.stop;
       state.running = false;
       state.stop = false;
+      setRunning(false);
       el.go.textContent = '开始';
-      setStatus(stopped
-        ? `已停止：停在第 ${state.current + 1} 题`
-        : `完成 ${list.length} 题。自己检查一遍再提交。`);
+      paint(-1);
+
+      if (stopped) {
+        setStatus(`已停止 · 停在第 ${state.current + 1} 题`);
+      } else {
+        setStatus(`发完 ${list.length} 题，自己看一遍再提交`);
+      }
+      syncCount();
     }
 
     /* ---- 单步：只发一轮，用来确认网站吃不吃这套 ---- */
     async function stepOnce() {
       if (state.running) return;
-      const list = parseAnswers(el.ans.value);
+      syncAnswers();
+      const list = answers.slice();
       if (!list.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
 
       const i = Math.min(state.stepIndex, list.length - 1);
       state.stop = false;
       state.running = true;
-      setStatus(`单步：第 ${i + 1}/${list.length} 题 → ${list[i]}`);
+      setRunning(true);
+      paint(i);
+      setStatus(`单步 · 第 ${i + 1} 题 · ${list[i]}`);
       blurPanel();
 
       await oneQuestion(i, list, readCfg(), false);
 
       state.running = false;
-      state.stepIndex = Math.min(i + 1, list.length - 1);
-      setStatus(`单步发了第 ${i + 1} 题（${list[i]}），下一次从第 ${state.stepIndex + 1} 题开始`);
+      setRunning(false);
+      paint(-1);
+      if (state.stepIndex < list.length - 1) state.stepIndex = i + 1;
+      setStatus(`发了第 ${i + 1} 题（${list[i]}），下一题从第 ${state.stepIndex + 1} 题开始`);
     }
 
     /* ---- 自检：发一个 a，看看页面有没有反应 ---- */
@@ -369,41 +559,63 @@
       const after = document.body ? document.body.innerHTML.length : 0;
 
       if (mutations > 0 || after !== before) {
-        setStatus('自检：页面有反应 ✅ 合成按键可用，可以点「开始」');
+        setStatus('自检：页面有反应，合成按键可用');
       } else if (handled) {
-        setStatus('自检：按键被页面处理了 ✅ 可以点「开始」');
+        setStatus('自检：按键被页面处理了，可以用');
       } else {
-        setStatus('自检：没检测到反应 ⚠ 站点可能只认真人按键，需要改用系统级按键模拟（如 AutoHotkey）');
+        setStatus('自检：没检测到反应。站点可能只认真人按键，得改用系统级按键模拟');
       }
     }
 
     /* ---- 绑定 ---- */
     el.go.addEventListener('click', runAll);
     el.step.addEventListener('click', stepOnce);
-    el.stop.addEventListener('click', () => { state.stop = true; setStatus('正在停止…'); });
+    el.stop.addEventListener('click', () => {
+      if (!state.running) return;
+      state.stop = true;
+      setStatus('正在停止…');
+    });
     el.selftest.addEventListener('click', selfTest);
     el.reset.addEventListener('click', () => {
       state.stepIndex = 0;
       state.current = 0;
       setStatus('已归零，从第 1 题开始');
     });
-    el.ans.addEventListener('input', () => {
-      const n = parseAnswers(el.ans.value).length;
-      setStatus(`已读入 ${n} 个答案` + (n && n !== 40 ? '（不是 40 个，确认一下）' : ''));
-      save();
-    });
+
+    el.ans.addEventListener('input', () => { syncAnswers(); save(); });
     [el.d1, el.d2, el.d3, el.gap, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
 
-    /* ---- 每题间隔 → 折算成「题/分」，低于站点限额时标红 ---- */
+    // 点某一格改答案：A → B → C → D → A
+    el.card.addEventListener('click', (e) => {
+      if (state.running) return;
+      const c = e.target.closest ? e.target.closest('.cell') : null;
+      if (!c || !c.dataset.i) return;
+      const i = Number(c.dataset.i);
+      const cur = answers[i];
+      answers[i] = cur === 'A' ? 'B' : cur === 'B' ? 'C' : cur === 'C' ? 'D' : 'A';
+      el.ans.value = fmt(answers);
+      renderCard();
+      save();
+    });
+
+    // 设置开合
+    el.more.addEventListener('click', () => {
+      const open = !el.set.classList.contains('open');
+      el.set.classList.toggle('open', open);
+      el.more.classList.toggle('open', open);
+      save();
+    });
+
+    /* ---- 每题间隔 → 折算成「题/分」，超过站点限额标红 ---- */
     const syncRate = () => {
       const g = Math.max(0, Number(el.gap.value) || 0);
       const perMin = g > 0 ? Math.floor(60000 / g) : 0;
       const risky = perMin >= 30;
-      el.rate.textContent = perMin > 0 ? String(perMin) : '—';
-      el.rate.style.color = risky ? '#e5a04a' : '#8f9bb5';
+      el.rate.textContent = perMin > 0 ? `≈ ${perMin} 题/分` : '不限速';
+      el.rate.classList.toggle('risky', risky);
       el.rate.title = perMin > 0
-        ? `每分钟约 ${perMin} 题` + (risky ? '，接近或超过站点 30 次/分的限额，建议 ≥ 2200ms（≤27 题/分）' : '')
-        : '未限速，只按上面三个等待时间跑';
+        ? `每分钟约 ${perMin} 题` + (risky ? '，接近或超过站点 30 次/分的限额，建议 ≥ 2200 毫秒' : '')
+        : '不限速，只按设置里的三个等待时间跑';
     };
     el.gap.addEventListener('input', syncRate);
     el.gap.addEventListener('change', () => { syncRate(); save(); });
@@ -436,6 +648,7 @@
     /* ---- 拖动 ---- */
     let drag = null;
     el.hd.addEventListener('mousedown', (e) => {
+      if (e.target.closest && e.target.closest('.x')) return;
       const r = host.getBoundingClientRect();
       drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
       e.preventDefault();
@@ -453,22 +666,24 @@
 
   /* ============ 装配 ============ */
 
-  const rootNode = document.body || document.documentElement;
+  const rootNode = () => document.body || document.documentElement;
 
   const panel = buildUI();
-  rootNode.appendChild(panel.host);
+  rootNode().appendChild(panel.host);
 
-  // 右侧浮动「答」圆块：不用记快捷键也能打开面板，可拖动
+  // 左上角浮动「答」圆块：不用记快捷键也能打开面板，可拖动
   const badge = document.createElement('div');
   badge.id = 'dsh-auto-answer-badge';
   badge.textContent = '答';
   badge.title = '答题键盘模拟（' + hotLabel() + '）';
   badge.style.cssText =
-    'all:initial;position:fixed;top:96px;right:16px;width:30px;height:30px;border-radius:50%;' +
-    'background:#2563eb;color:#fff;font:600 14px/30px -apple-system,"Microsoft YaHei",sans-serif;' +
-    'text-align:center;cursor:pointer;z-index:2147483646;opacity:.4;' +
-    'box-shadow:0 2px 10px rgba(0,0,0,.35);user-select:none;';
-  rootNode.appendChild(badge);
+    'all:initial;position:fixed;top:88px;left:16px;width:28px;height:28px;border-radius:50%;' +
+    'background:#17181C;color:#fff;font:600 12px/28px ' + FONT + ';' +
+    'text-align:center;cursor:pointer;z-index:2147483646;opacity:.32;' +
+    'user-select:none;transition:opacity .15s ease;';
+  rootNode().appendChild(badge);
+  badge.addEventListener('mouseenter', () => { badge.style.opacity = '.9'; });
+  badge.addEventListener('mouseleave', () => { badge.style.opacity = '.32'; });
 
   function setOpen(open) {
     panel.host.style.display = open ? 'block' : 'none';
