@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.4.0
+// @version      1.4.1
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -184,11 +184,11 @@
     textarea.ans:focus { background: #fff; box-shadow: inset 0 0 0 2px #17181C; } /* taste-skill-ignore 焦点环 */
 
     /* 答案卡：10 列，每 5 题之间留一条缝 */
-    .card { display: grid; grid-template-columns: repeat(5, 1fr) 5px repeat(5, 1fr);
+    .card { display: grid; grid-template-columns: repeat(5, 1fr) 8px repeat(5, 1fr);
             column-gap: 1px; row-gap: 1px; }
     .card.empty { display: block; padding: 12px 0 10px; text-align: center; color: #8A9099; font-size: 11.5px; }
-    .cell { display: flex; flex-direction: column; align-items: center; padding: 3px 0 4px; border-radius: 3px; cursor: pointer; }
-    .cell b { font-size: 9px; font-weight: 500; color: #7A808A; line-height: 1.3; font-variant-numeric: tabular-nums; }
+    .cell { display: flex; flex-direction: column; align-items: center; padding: 4px 0 5px; border-radius: 3px; cursor: pointer; }
+    .cell b { font-size: 9.5px; font-weight: 500; color: #6E747D; line-height: 1.3; font-variant-numeric: tabular-nums; }
     .cell span { font-size: 14px; font-weight: 600; line-height: 1.25; }
     .cell:hover { background: #F1F1EE; }
     .cell.sent { opacity: .4; }
@@ -210,7 +210,7 @@
     .rate.risky { color: #C8402F; }
 
     /* 按钮 */
-    .btn { border: 0; border-radius: 4px; cursor: pointer; padding: 8px 10px;
+    .btn { border: 1px solid transparent; border-radius: 4px; /* taste-skill-ignore 透明边框只为对齐按钮高度 */ cursor: pointer; padding: 8px 10px;
            font: 600 12.5px/1.1 ${FONT}; background: #EDEDE9; color: #17181C; transition: background .12s ease; }
     .btn:hover { background: #E7E7E3; }
     .btn:active { transform: translateY(1px); }
@@ -220,9 +220,9 @@
     .btn.primary:hover { background: #2C2E34; }
     .btn.primary[disabled] { background: #B7B9BF; cursor: default; transform: none; }
     .btn.wide { flex: 1; }
-    .btn.mute { background: transparent; color: #6A6E78; }
-    .btn.mute:hover { background: #F1F1EE; }
-    .btn.mute.on { background: #EDEDE9; color: #17181C; }
+    .btn.mute { background: transparent; border-color: #DDDED9; color: #17181C; }
+    .btn.mute:hover { background: #F7F7F4; border-color: #C7C8C2; }
+    .btn.mute.on { background: #EDEDE9; border-color: #C7C8C2; color: #17181C; }
 
     /* 设置 */
     .more { display: flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0;
