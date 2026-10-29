@@ -89,3 +89,29 @@ CodeBrick 限每分钟 30 次答题，超了会挡一段时间。
 | 选项没选中但翻页了 | 输入法的中文态无关（合成事件不走输入法）；多半是站点按 `e.key === 'A'` 判断，勾上「大写」 |
 | 只选中了没翻页 | 站点不需要 Enter，勾上「不发 Enter」 |
 | 站点必须用鼠标点选项 | 键盘模拟无效，需要改成鼠标点击自动化 |
+
+---
+
+## 版本管理
+
+这个目录本身就是一个 git 仓库（`main` 分支），当前版本 `v1.3.1`，版本号同步写在脚本头部的 `// @version`。
+
+```bash
+# 看历史 / 看标签
+git -C auto-answer log --oneline --decorate
+git -C auto-answer tag
+
+# 改完提交
+git -C auto-answer add -A
+git -C auto-answer commit -m "改了什么"
+
+# 发版：改 // @version 后再打标签
+git -C auto-answer tag -a v1.3.2 -m "v1.3.2"
+```
+
+历史版本随时可以取回：
+
+```bash
+git -C auto-answer show v1.3.0:auto-answer.user.js > 旧版.user.js
+```
+
