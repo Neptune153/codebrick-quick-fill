@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.6.0
+// @version      1.6.1
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -627,7 +627,10 @@
         if (qTimer) return;
         qTimer = setTimeout(() => { qTimer = null; refreshQno(); }, 250);
       });
-      qMo.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+      qMo.observe(document.documentElement, {
+        childList: true, subtree: true, characterData: true,
+        attributes: true, attributeFilter: ['title', 'class'],
+      });
     } catch (e) { /* 老浏览器，忽略 */ }
 
     /* ---- 对位：把页面翻到第 from 题；翻不过去就停下来说清楚，不闷头发错 ---- */
