@@ -1,10 +1,9 @@
 // ==UserScript==
-// @name         答题键盘模拟（ABCD → Enter → →）
+// @name         答题键盘模拟
 // @namespace    https://local.auto-answer
-// @version      1.7.0
-// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
+// @version      1.7.1
+// @description  按给定答案模拟键盘：字母 → Enter → 右方向键，循环 N 题；可只跑指定题号范围，并从页面读出题号自动翻到位。
 // @author       local
-// @match        https://www.codebrick.tech/*
 // @match        https://codebrick.tech/*
 // @match        https://*.codebrick.tech/*
 // @grant        none
@@ -13,45 +12,26 @@
 
 /* ------------------------------------------------------------------
  * 用法
- *   1. 打开 https://www.codebrick.tech/ 的答题页（不用先点题目区域）
- *   2. 点左边那个浮动的「答」圆块，或按 Alt + Shift + A，打开面板
- *   3. 把答案粘进输入框 → 下面会按题号排成一张答案卡
- *   4. 只答其中一段：把「范围」改成 从 X 到 Y，脚本只发这一段
- *      只答不连续的几题：中间用 - 占位，例如 从 13 到 15 + 「C-C」= 只答 13、15
- *   5. 点「单步」试一题 → 确认有反应再点「开始」
- *   6. 想停下：点「停止」，或按 Esc
+ *   1. 打开 codebrick.tech 的答题页，不用先点题目区域
+ *   2. 点左边浮动的「答」圆块，或按 Alt + Shift + A
+ *   3. 把答案粘进输入框，只认 A/B/C/D，- 表示跳过这题
+ *   4. 只答一段题：把「只发」改成 第 X 到 Y 题
+ *   5. 点「单步」试一题，确认有反应再点「开始」
+ *   6. 停下：点「停止」或按 Esc
  *
- * 对位（v1.6.0，v1.7.0 起会往回退）
- *   面板上「只发」右边那个「现在 第 N 题」是脚本从页面读出来的
- *   （CodeBrick 把它写在 article header 的 .source-badge 上）。
- *   开跑前如果页面停在第 1 题、范围从第 5 题开始，脚本会先按 → 跳到第 5 题；
- *   如果页面已经越过起点（比如在第 16 题、范围从第 5 题开始），它会按 ← 退回去，
- *   两边都是一下一下等「翻页」间隔；读不到题号（网站改版/题号画在 canvas 上）时退回老办法：
- *   你自己翻好，脚本把"当前这题"当成范围的第一题。
- *
- * 面板
- *   主界面只有「每题间隔」「范围」和三个按钮，其余参数都收在「设置」里。
- *   答案卡按 10 列排，每 5 题隔开一点；点某一格可以 A→B→C→D→—(跳过) 改答案。
- *   范围默认是「从 1 到最后一题」，也就是把答案全部发一遍。
+ * 对位
+ *   「只发」右边的「现在 第 N 题」从页面角标读出。
+ *   没到起点按 → 往前翻，越过起点按 ← 退回来，都按「翻页」间隔一下一下走。
+ *   读不到题号就退回手动：你自己翻好，脚本把当前这题当成范围第一题。
  *
  * 限流
- *   CodeBrick 限「每分钟 30 次」答题。默认每题间隔 2200ms ≈ 27 题/分，
- *   40 题约 90 秒。调小到 2000ms 以下右边会变红提醒。
- *   这个间隔是从"这一题开始按键"算起的总时长，不足会自动补足，
- *   所以字母后/Enter后/→后 只会拖慢单题，不会让总节奏超过设定值。
- *
- * 快捷键
- *   默认 Alt + Shift + A。嫌冲突就在「设置」里点快捷键那一格，
- *   直接按下你想用的组合（要带 Ctrl/Alt/Shift 或 F1~F12），会被记住。
- *   不想用快捷键也行——点「答」圆块即可。
+ *   CodeBrick 限每分钟 30 次答题。默认 2200ms 一题约 27 题/分，40 题 88 秒。
+ *   这个间隔从这一题开始按键算起，不够自动补足，所以三个等待时间只会拖慢单题。
  *
  * 说明
- *   - 按键是网页内部派发的合成事件（isTrusted = false）。
- *     用 keydown / keyup 监听选项的网站基本都能用；
- *     如果站点校验"真人按键"，这个方案会被拦，只能改用系统级按键模拟
- *     （AutoHotkey 之类的工具）。
- *   - @match 已限定在 codebrick.tech。想换站点就改这几行。
- *   - 面板出现在"当前有焦点的那个 frame"，题目在 iframe 里也能用。
+ *   按键是网页内部派发的合成事件，isTrusted 为 false。
+ *   站点校验真人按键时这个方案会被拦，得改用 AutoHotkey 一类的系统级模拟。
+ *   @match 限定 codebrick.tech，换站点改这两行。
  * ------------------------------------------------------------------ */
 
 (function () {
@@ -97,8 +77,8 @@
 
   /* ============ 按键派发 ============ */
 
-  // 统一发到 body：事件顺着 DOM 往上冒泡，document / window 上的监听都能收到。
-  // 只发一次就够——同一个事件在 body/document/window 上各发一遍，document 上的监听会被触发两次，会一次跳两题。
+  // 统一发到 body：事件顺着 DOM 往上冒泡，document 和 window 上的监听都能收到。
+  // 同一个事件只发一次。若在 body、document、window 上各发一遍，document 上的监听会触发两次，一次跳两题。
   function fire(key, code, keyCode, shiftKey) {
     const t = document.body || document.documentElement || document;
     const types = key.length === 1 ? ['keydown', 'keypress', 'keyup'] : ['keydown', 'keyup'];
@@ -116,7 +96,7 @@
         view: window,
       });
       try {
-        // dispatchEvent 返回 false 说明页面确实处理了这次按键（调了 preventDefault）
+        // dispatchEvent 返回 false，说明页面处理了这次按键并 preventDefault
         if (!t.dispatchEvent(ev)) handled = true;
       } catch (e) { /* 站点可能拦截，忽略 */ }
     }
@@ -145,7 +125,7 @@
 
   /* ============ 答案解析 ============ */
 
-  // 只认 A~D；- _ ? 算「跳过这题」（照常按 →，但不发字母）
+  // 只认 A~D。- _ ? 算跳过这题：照常按 →，但不发字母
   function parseAnswers(text) {
     let raw = '';
     for (const line of String(text || '').split(/\r?\n/)) {
@@ -274,16 +254,15 @@
     .lab { color: #6A6E78; font-size: 11.5px; min-width: 42px; }
     .unit { color: #A6A9B0; font-size: 11px; }
     input.num { width: 54px; background: #F1F1EE; border: 0; border-radius: 4px; padding: 5px 6px; outline: none;
-                color: #17181C; font: 600 12.5px/1.2 ${FONT}; font-variant-numeric: tabular-nums; text-align: center; }
+                color: #17181C; font: 600 12.5px/1.2 ${FONT}; font-variant-numeric: tabular-nums; text-align: center;
+                -moz-appearance: textfield; appearance: textfield; }
     input.num:focus { background: #fff; box-shadow: inset 0 0 0 2px #17181C; } /* taste-skill-ignore 焦点环 */
     input.num::-webkit-outer-spin-button, input.num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-    input.num { -moz-appearance: textfield; appearance: textfield; }
     .rate { margin-left: auto; font-size: 11px; color: #8A8D95; font-variant-numeric: tabular-nums; }
     .rate.risky { color: #C8402F; }
     .qnow { margin-left: auto; font-size: 11px; color: #8A8D95; font-variant-numeric: tabular-nums;
       max-width: 132px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .qnow.moving { color: #17181C; }
-    .qnow.bad { color: #C8402F; }
 
     /* 按钮 */
     .btn { border: 1px solid transparent; border-radius: 4px; /* taste-skill-ignore 透明边框只为对齐按钮高度 */ cursor: pointer; padding: 8px 10px;
@@ -472,7 +451,7 @@
 
     function readQno(force) {
       const now = Date.now();
-      if (!force && now - qnoAt < 250) return qno;   // 页面 MutationObserver 很吵，节流一下
+      if (!force && now - qnoAt < 250) return qno;   // 页面 MutationObserver 很吵，节流 250ms
       qnoAt = now;
       qno = readQnoFromDom();
       return qno;
@@ -480,7 +459,7 @@
 
     function setQnow(v) {
       el.qnow.textContent = v == null ? '现在 ?' : `现在 第 ${v} 题`;
-      el.qnow.classList.remove('moving', 'bad');
+      el.qnow.classList.remove('moving');
       el.qnow.title = v == null
         ? '页面上没找到「第 N 题」，对位只能靠你自己先翻好'
         : '从页面读到的题号';
@@ -518,7 +497,7 @@
       return r;
     }
 
-    // 输入过程中只刷新提示，不把值改回去（改回去会打断输入）
+    // 输入过程中只刷新提示，不把值改回去，否则会打断输入
     function hintNow() {
       const n = answers.length;
       if (!n) return;
@@ -535,7 +514,7 @@
       }
       if (skipped) text += (text ? '，' : '') + `其中 ${skipped} 题跳过`;
 
-      // 只在「脚本确实会动」的前提下补一句：起点在第 1 题但页面已经翻过去了，也要说清楚
+      // 起点在第 1 题但页面已经翻过去了，也要说清楚，否则用户以为脚本在乱按
       const q = readQno();
       if (q == null) {
         if (r.from > 1) text += (text ? ' · ' : '') + `没认出题号，把当前这题当第 ${r.from} 题`;
@@ -546,11 +525,6 @@
       }
       el.hint.textContent = text;
       return r;
-    }
-
-    function syncCount() {
-      if (state.running) return;
-      syncRange();
     }
 
     function paint(active) {
@@ -586,7 +560,7 @@
       }
       answers = next;
       renderCard();
-      syncCount();
+      syncRange();
     }
 
     function readCfg() {
@@ -637,14 +611,14 @@
       });
     } catch (e) { /* 老浏览器，忽略 */ }
 
-    /* ---- 对位：把页面翻到第 from 题（过了就按住 ← 退，没到就按 → 走）；翻不动就停下来说清楚 ---- */
+    /* ---- 对位：把页面翻到第 from 题。过了就按 ← 退，没到就按 → 走；走不动就停下来说清楚 ---- */
     async function alignTo(from) {
       let cur = readQno(true);
       setQnow(cur);
-      if (cur == null) return { ok: true, cur: null };   // 认不出题号：老规矩，当前这题当起点
+      if (cur == null) return { ok: true, cur: null };   // 一开始就读不到题号：当前这题当起点
 
       const cfg = readCfg();
-      const hop = Math.max(300, cfg.pg);   // 每次 ←/→ 之后等多久，让页面渲染完再读数
+      const hop = Math.max(300, cfg.pg);   // 每次 ←/→ 之后等多久再读数，给页面渲染留时间
       let hops = 0;
       while (cur !== from && hops < 80) {
         if (state.stop) return { ok: false, msg: '已停止' };
@@ -658,7 +632,10 @@
         if (!(await wait(hop))) return { ok: false, msg: '已停止' };
         const next = readQno(true);
         setQnow(next);
-        if (next == null) return { ok: true, cur: null };
+        if (next == null) {
+          // 已经动了却读不到题号，位置就不确定了，不能再闷头发
+          return { ok: false, msg: `翻到一半认不出题号了，先手动翻到第 ${from} 题再试` };
+        }
         if (back ? next >= cur : next <= cur) {
           return {
             ok: false,
@@ -670,7 +647,7 @@
         cur = next;
       }
       if (cur === from) {
-        if (hops) await wait(hop);   // 到位后再等一下，别赶在题干渲染完之前就按字母
+        if (hops) await wait(hop);   // 到位后再等一拍，别赶在题干渲染完之前按字母
         return { ok: true, cur };
       }
       return { ok: false, msg: `对位没走完：停在第 ${cur} 题，起点是第 ${from} 题 · 手动翻一下再试` };
@@ -697,7 +674,7 @@
       }
 
       // 限速：从这一题开始算，总耗时不超过 cfg.gap，
-      // 让每分钟提交次数稳定落在站点限额（如 30 次/分）以下。
+      // 让每分钟的答题次数落在站点限额 30 次/分以下。
       if (pad && cfg.gap > 0) {
         const left = cfg.gap - (Date.now() - t0);
         if (left > 0 && !(await wait(left))) return false;
@@ -718,6 +695,15 @@
       el.stop.disabled = !on;
     }
     setRunning(false);
+
+    // 收尾：按钮复位、按钮文字回来、答案卡不再高亮
+    function endRun() {
+      state.running = false;
+      state.stop = false;
+      setRunning(false);
+      el.go.textContent = '开始';
+      paint(-1);
+    }
 
     /* ---- 开始 ---- */
     async function runAll() {
@@ -742,12 +728,9 @@
       // 先对位：页面停在第 1 题、范围从第 5 题开始，就先按 → 翻过去
       const al = await alignTo(from);
       if (!al.ok) {
-        state.running = false;
-        state.stop = false;
-        setRunning(false);
-        el.go.textContent = '开始';
+        endRun();
         setStatus(al.msg);
-        syncCount();
+        syncRange();
         return;
       }
       const blind = from > 1 && al.cur == null;   // 认不出题号，只能把当前这题当起点
@@ -769,11 +752,7 @@
         setProg((k + 1) / list.length);
       }
 
-      state.running = false;
-      state.stop = false;
-      setRunning(false);
-      el.go.textContent = '开始';
-      paint(-1);
+      endRun();
 
       const span = from === to ? `第 ${from} 题` : `第 ${from}–${to} 题`;
       const countNote = list.length > 1 ? `，共 ${list.length} 题` : '';
@@ -785,7 +764,7 @@
       } else {
         setStatus(`${span}已发完${countNote} · 提交按钮没动${blindNote}`);
       }
-      syncCount();
+      syncRange();
     }
 
     /* ---- 单步：只发一轮，用来确认网站吃不吃这套 ---- */
@@ -813,10 +792,7 @@
       // 单步也对位：页面在哪不重要，落到「这一题」再发
       const al = await alignTo(i + 1);
       if (!al.ok) {
-        state.running = false;
-        state.stop = false;
-        setRunning(false);
-        paint(-1);
+        endRun();
         setStatus(al.msg);
         hintNow();
         return;
@@ -824,19 +800,17 @@
 
       await oneQuestion(i - (from - 1), list, readCfg(), false);
 
-      state.running = false;
-      setRunning(false);
-      paint(-1);
+      endRun();
       state.stepIndex = i + 1 > to - 1 ? from - 1 : i + 1;
       const did = ch === SKIP ? `跳过第 ${i + 1} 题` : `发了第 ${i + 1} 题（${ch}）`;
       setStatus(`${did}，下一题从第 ${state.stepIndex + 1} 题开始`);
       hintNow();
     }
 
-    /* ---- 自检：发一个 a，看看页面有没有反应 ---- */
+    /* ---- 自检：真按一个 A，看页面认不认合成按键 ---- */
     async function selfTest() {
       if (state.running) return;
-      setStatus('自检中，观察 0.8 秒…');
+      setStatus('自检中：会真的按一下 A，可能改变当前这题的选项');
 
       let mutations = 0;
       const mo = new MutationObserver((ms) => { mutations += ms.length; });
@@ -856,7 +830,7 @@
       } else if (handled) {
         setStatus('自检：按键被页面处理了，可以用');
       } else {
-        setStatus('自检：没检测到反应。站点可能只认真人按键，得改用系统级按键模拟');
+        setStatus('自检：没反应。站点可能只认真人按键，得改用系统级按键模拟');
       }
     }
 
@@ -877,7 +851,8 @@
     });
 
     el.ans.addEventListener('input', () => { syncAnswers(); save(); });
-    [el.d1, el.d2, el.d3, el.gap, el.pg, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
+    // 每题间隔自己挂 input/change，还要顺带刷新题/分，所以不放进上面的批量保存里
+    [el.d1, el.d2, el.d3, el.pg, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
 
     // 范围：输入时只刷新提示，失焦/回车时再夹到合法区间
     el.from.addEventListener('input', hintNow);
@@ -887,7 +862,7 @@
       n.addEventListener('keydown', (e) => { if (e.key === 'Enter') n.blur(); });
     });
 
-    // 点某一格改答案：A → B → C → D → —（跳过） → A
+    // 点某一格改答案：A → B → C → D → 跳过 → A
     el.card.addEventListener('click', (e) => {
       if (state.running) return;
       const c = e.target.closest ? e.target.closest('.cell') : null;
@@ -898,7 +873,7 @@
       answers[i] = order[(order.indexOf(cur) + 1) % order.length];
       el.ans.value = fmt(answers);
       renderCard();
-      syncCount();
+      syncRange();
       save();
     });
 
@@ -945,6 +920,7 @@
       if (!isFn && !hasMod) { el.hot.value = '要带 Ctrl/Alt/Shift 或 F1~F12'; return; }
       hot = { code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
       el.hot.value = hotLabel();
+      if (hotBadge) hotBadge.title = '答题键盘模拟 · ' + hotLabel() + ' 打开/收起';
       save();
       setTimeout(() => el.hot.blur(), 150);
     });
@@ -972,6 +948,8 @@
 
   const rootNode = () => document.body || document.documentElement;
 
+  let hotBadge = null;   // 圆块的 title 要跟着快捷键改
+
   const panel = buildUI();
   rootNode().appendChild(panel.host);
 
@@ -979,7 +957,8 @@
   const badge = document.createElement('div');
   badge.id = 'dsh-auto-answer-badge';
   badge.textContent = '答';
-  badge.title = '答题键盘模拟（' + hotLabel() + '）';
+  hotBadge = badge;
+  badge.title = '答题键盘模拟 · ' + hotLabel() + ' 打开/收起';
   badge.style.cssText =
     'all:initial;position:fixed;top:88px;left:16px;width:28px;height:28px;border-radius:50%;' +
     'background:#17181C;color:#fff;font:600 12px/28px ' + FONT + ';' +
@@ -1033,6 +1012,7 @@
     if (!typedInPanel(e)) return;
     if (panel.isRecording()) return;          // 正在录快捷键，放行给它自己
     if (hotMatches(e)) return;                // 面板自己的快捷键照常
+    if (e.key === 'Escape') return;           // Esc 要能传到下面的「停止」
     e.stopImmediatePropagation();
   }
   window.addEventListener('keydown', shieldPanelKeys, true);
