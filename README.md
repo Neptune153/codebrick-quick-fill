@@ -1,7 +1,8 @@
-# CodeBrick 答题键盘模拟
+# 码砖速填
 
-在 <https://www.codebrick.tech/> 的答题页上按你给的答案自动模拟键盘：`字母 → Enter → →`，循环 N 题。
-答案由你粘贴，提交由你自己点。可以只发某一段题号，也可以跳过个别题。
+把已有答案成批敲进 [CodeBrick](https://www.codebrick.tech/) 的答题页，选项和翻页交给脚本，核对与提交仍是你。
+
+按 `字母 → Enter → →` 的节奏回放你粘贴的 A/B/C/D，可以只发指定的题号范围，也可以跳过个别题。页面角标能读出「第 N 题」时，脚本自己翻到起点，过了起点就按 `←` 退回来。
 
 支持 ScriptCat、Tampermonkey、Violentmonkey。
 
@@ -10,10 +11,16 @@
 ## 安装
 
 1. 打开脚本管理器，新建脚本
-2. 把 `auto-answer.user.js` 整个粘进去，保存
+2. 把 `codebrick-quick-fill.user.js` 整个粘进去，保存
 3. 刷新答题页
 
 也可以把 `.user.js` 拖进浏览器窗口，管理器会弹安装页。
+
+在 ScriptCat、Tampermonkey 里选「从 URL 安装」，填：
+
+```
+https://raw.githubusercontent.com/Neptune153/codebrick-quick-fill/main/codebrick-quick-fill.user.js
+```
 
 不要同时装两份旧版和新版，会出两个「答」圆块，一次按键跑两遍。
 
@@ -154,10 +161,12 @@ CodeBrick 限每分钟 30 次答题，超了会挡一段时间。
 
 ## 版本
 
-当前 `v1.7.1`，版本号同步写在脚本头部的 `// @version`。
+当前 `v1.8.0`，版本号同步写在脚本头部的 `// @version`。
 
 ```bash
 git log --oneline --decorate
 git tag
-git show v1.5.0:auto-answer.user.js > 旧版.user.js
+git show v1.7.1:codebrick-quick-fill.user.js > 旧版.user.js
 ```
+
+从 `v1.7.1` 及更早的版本升级，答案和配置会自动搬过来，不用重填。

@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         答题键盘模拟
-// @namespace    https://local.auto-answer
-// @version      1.7.1
-// @description  按给定答案模拟键盘：字母 → Enter → 右方向键，循环 N 题；可只跑指定题号范围，并从页面读出题号自动翻到位。
-// @author       local
+// @name         码砖速填
+// @namespace    https://github.com/Neptune153/codebrick-quick-fill
+// @version      1.8.0
+// @description  在 CodeBrick 答题页批量填答：按已有答案回放 A/B/C/D，可只发指定题号范围，提交仍手动。
+// @author       Neptune153
 // @match        https://codebrick.tech/*
 // @match        https://*.codebrick.tech/*
 // @grant        none
@@ -37,10 +37,11 @@
 (function () {
   'use strict';
 
-  if (window.__autoAnswerLoaded) return;
-  window.__autoAnswerLoaded = true;
+  if (window.__cqfLoaded) return;
+  window.__cqfLoaded = true;
 
-  const STORE = 'dsh-auto-answer-v1';
+  const STORE = 'cqf-v1';                 // 配置存在这里
+  const STORE_OLD = 'dsh-auto-answer-v1'; // 1.8.0 之前的旧键，读一次搬过来
   const LETTER_VK = { A: 65, B: 66, C: 67, D: 68 };
   const SKIP = '-';
   const FONT = '-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif';
@@ -301,7 +302,7 @@
 
   function buildUI() {
     const host = document.createElement('div');
-    host.id = 'dsh-auto-answer';
+    host.id = 'cqf-panel';
     host.style.cssText = 'all:initial;position:fixed;top:88px;left:16px;z-index:2147483647;display:none;';
 
     const root = host.attachShadow({ mode: 'open' });
@@ -578,7 +579,14 @@
 
     /* ---- 恢复上次的配置 ---- */
     try {
-      const raw = localStorage.getItem(STORE);
+      let raw = localStorage.getItem(STORE);
+      if (!raw) {
+        raw = localStorage.getItem(STORE_OLD);
+        if (raw) {
+          localStorage.setItem(STORE, raw);
+          localStorage.removeItem(STORE_OLD);
+        }
+      }
       if (raw) {
         const c = JSON.parse(raw);
         if (c.ans) el.ans.value = c.ans;
@@ -920,7 +928,7 @@
       if (!isFn && !hasMod) { el.hot.value = '要带 Ctrl/Alt/Shift 或 F1~F12'; return; }
       hot = { code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
       el.hot.value = hotLabel();
-      if (hotBadge) hotBadge.title = '答题键盘模拟 · ' + hotLabel() + ' 打开/收起';
+      if (hotBadge) hotBadge.title = '码砖速填 · ' + hotLabel() + ' 打开/收起';
       save();
       setTimeout(() => el.hot.blur(), 150);
     });
@@ -955,10 +963,10 @@
 
   // 左上角浮动「答」圆块：不用记快捷键也能打开面板，可拖动
   const badge = document.createElement('div');
-  badge.id = 'dsh-auto-answer-badge';
+  badge.id = 'cqf-badge';
   badge.textContent = '答';
   hotBadge = badge;
-  badge.title = '答题键盘模拟 · ' + hotLabel() + ' 打开/收起';
+  badge.title = '码砖速填 · ' + hotLabel() + ' 打开/收起';
   badge.style.cssText =
     'all:initial;position:fixed;top:88px;left:16px;width:28px;height:28px;border-radius:50%;' +
     'background:#17181C;color:#fff;font:600 12px/28px ' + FONT + ';' +
