@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.6.3
+// @version      1.7.0
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -21,12 +21,12 @@
  *   5. 点「单步」试一题 → 确认有反应再点「开始」
  *   6. 想停下：点「停止」，或按 Esc
  *
- * 对位（v1.6.0）
+ * 对位（v1.6.0，v1.7.0 起会往回退）
  *   面板上「只发」右边那个「现在 第 N 题」是脚本从页面读出来的
  *   （CodeBrick 把它写在 article header 的 .source-badge 上）。
  *   开跑前如果页面停在第 1 题、范围从第 5 题开始，脚本会先按 → 跳到第 5 题；
- *   如果页面已经越过起点，它会停下来让你手动翻回去——不会闷头发错。
- *   读不到题号（网站改版/题号画在 canvas 上）时退回老办法：
+ *   如果页面已经越过起点（比如在第 16 题、范围从第 5 题开始），它会按 ← 退回去，
+ *   两边都是一下一下等「翻页」间隔；读不到题号（网站改版/题号画在 canvas 上）时退回老办法：
  *   你自己翻好，脚本把"当前这题"当成范围的第一题。
  *
  * 面板
@@ -129,6 +129,7 @@
   }
   const pressEnter = () => fire('Enter', 'Enter', 13, false);
   const pressRight = () => fire('ArrowRight', 'ArrowRight', 39, false);
+  const pressLeft = () => fire('ArrowLeft', 'ArrowLeft', 37, false);
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -534,14 +535,14 @@
       }
       if (skipped) text += (text ? '，' : '') + `其中 ${skipped} 题跳过`;
 
-      // 只在「脚本确实会动」的前提下补一句；已经过了起点这种，等按下开始由状态栏说
-      if (r.from > 1) {
-        const q = readQno();
-        if (q == null) {
-          text += (text ? ' · ' : '') + `没认出题号，把当前这题当第 ${r.from} 题`;
-        } else if (q < r.from) {
-          text += (text ? ' · ' : '') + `会先翻到第 ${r.from} 题`;
-        }
+      // 只在「脚本确实会动」的前提下补一句：起点在第 1 题但页面已经翻过去了，也要说清楚
+      const q = readQno();
+      if (q == null) {
+        if (r.from > 1) text += (text ? ' · ' : '') + `没认出题号，把当前这题当第 ${r.from} 题`;
+      } else if (q < r.from) {
+        text += (text ? ' · ' : '') + `会先翻到第 ${r.from} 题`;
+      } else if (q > r.from) {
+        text += (text ? ' · ' : '') + `会先退到第 ${r.from} 题`;
       }
       el.hint.textContent = text;
       return r;
@@ -636,37 +637,43 @@
       });
     } catch (e) { /* 老浏览器，忽略 */ }
 
-    /* ---- 对位：把页面翻到第 from 题；翻不过去就停下来说清楚，不闷头发错 ---- */
+    /* ---- 对位：把页面翻到第 from 题（过了就按住 ← 退，没到就按 → 走）；翻不动就停下来说清楚 ---- */
     async function alignTo(from) {
       let cur = readQno(true);
       setQnow(cur);
       if (cur == null) return { ok: true, cur: null };   // 认不出题号：老规矩，当前这题当起点
 
-      const hop = Math.max(300, readCfg().pg);   // 每一次 → 之后等多久，让页面渲染完再读数
+      const cfg = readCfg();
+      const hop = Math.max(300, cfg.pg);   // 每次 ←/→ 之后等多久，让页面渲染完再读数
       let hops = 0;
-      while (cur < from && hops < 80) {
+      while (cur !== from && hops < 80) {
         if (state.stop) return { ok: false, msg: '已停止' };
-        setStatus(`对位中 · 现在第 ${cur} 题 → 第 ${from} 题`);
+        const back = cur > from;   // 页面在起点后面就退回去
+        setStatus(back
+          ? `对位中 · 退到第 ${from} 题（现在第 ${cur} 题）`
+          : `对位中 · 翻到第 ${from} 题（现在第 ${cur} 题）`);
         el.qnow.classList.add('moving');
-        pressRight();
+        if (back) pressLeft(); else pressRight();
         hops++;
         if (!(await wait(hop))) return { ok: false, msg: '已停止' };
         const next = readQno(true);
         setQnow(next);
         if (next == null) return { ok: true, cur: null };
-        if (next <= cur) {
-          return { ok: false, msg: `翻不动：还停在第 ${next} 题，站点可能要答完这题才放行` };
+        if (back ? next >= cur : next <= cur) {
+          return {
+            ok: false,
+            msg: back
+              ? `退不回去：还停在第 ${next} 题 · 起点是第 ${from} 题，把「只发」起点改成 ${next} 再试`
+              : `翻不动：还停在第 ${next} 题 · 站点可能要答完这题才放行`,
+          };
         }
         cur = next;
-        if (cur > from) {
-          return { ok: false, msg: `翻过头了：现在第 ${cur} 题（起点是第 ${from} 题），手动翻回去，或把起点改成 ${cur}` };
-        }
       }
       if (cur === from) {
-        if (hops) await wait(hop);   // 翻到了也再等一下，别赶在题干渲染完之前就按字母
+        if (hops) await wait(hop);   // 到位后再等一下，别赶在题干渲染完之前就按字母
         return { ok: true, cur };
       }
-      return { ok: false, msg: `页面在第 ${cur} 题，已经过了起点：手动翻回第 ${from} 题，或把「只发」起点改成 ${cur}` };
+      return { ok: false, msg: `对位没走完：停在第 ${cur} 题，起点是第 ${from} 题 · 手动翻一下再试` };
     }
 
     /* ---- 一轮按键：字母 → Enter → →；pad 时把这一题补足到「每题间隔」 ---- */
