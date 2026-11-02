@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.5.0
-// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，也可只跑指定的题号范围。点左上角「答」圆块或按快捷键打开面板。
+// @version      1.6.0
+// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
 // @match        https://codebrick.tech/*
@@ -20,6 +20,14 @@
  *      只答不连续的几题：中间用 - 占位，例如 从 13 到 15 + 「C-C」= 只答 13、15
  *   5. 点「单步」试一题 → 确认有反应再点「开始」
  *   6. 想停下：点「停止」，或按 Esc
+ *
+ * 对位（v1.6.0）
+ *   面板上「只发」右边那个「现在 第 N 题」是脚本从页面读出来的
+ *   （CodeBrick 把它写在 article header 的 .source-badge 上）。
+ *   开跑前如果页面停在第 1 题、范围从第 5 题开始，脚本会先按 → 跳到第 5 题；
+ *   如果页面已经越过起点，它会停下来让你手动翻回去——不会闷头发错。
+ *   读不到题号（网站改版/题号画在 canvas 上）时退回老办法：
+ *   你自己翻好，脚本把"当前这题"当成范围的第一题。
  *
  * 面板
  *   主界面只有「每题间隔」「范围」和三个按钮，其余参数都收在「设置」里。
@@ -158,6 +166,58 @@
     return out.join(' ');
   }
 
+  /* ============ 页面题号（对位用） ============ */
+
+  // CodeBrick 把题号写在 article > header 的角标上：
+  //   <span class="source-badge sb-real" title="2015 年统考真题 · 第 5 题">真题 2015 · 第 5 题</span>
+  // 从最贴近的写法开始试，命中一种就不再往下找，免得被别处的“第 N 题”干扰。
+  const Q_RE = /第\s*(\d{1,3})\s*题/;
+  const Q_SEL = [
+    'article header .source-badge',
+    'article header [class*="source-badge"]',
+    '.source-badge',
+    '[class*="source-badge"]',
+    'article header',
+    '[class*="question-no"]',
+    '[class*="qno"]',
+  ];
+
+  function qnoCandidates() {
+    const out = [];
+    const seen = new Set();
+    for (const sel of Q_SEL) {
+      let nodes = [];
+      try { nodes = document.querySelectorAll(sel); } catch (e) { continue; }
+      for (const n of nodes) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+        const m = Q_RE.exec((n.getAttribute('title') || '') + ' ' + (n.textContent || ''));
+        if (m) out.push({ n: Number(m[1]), el: n });
+      }
+      if (out.length) break;
+    }
+    return out;
+  }
+
+  // 好几道题的角标同时挂在 DOM 里时，取离视口中线最近、且真在屏幕上的那个
+  function readQnoFromDom() {
+    const list = qnoCandidates();
+    if (!list.length) return null;
+    if (list.length === 1) return list[0].n;
+    const h = window.innerHeight || 800;
+    const mid = h / 2;
+    let best = null;
+    for (const c of list) {
+      let r;
+      try { r = c.el.getBoundingClientRect(); } catch (e) { continue; }
+      if (!r.width || !r.height) continue;
+      const onScreen = r.bottom > 0 && r.top < h;
+      const d = Math.abs((r.top + r.bottom) / 2 - mid) + (onScreen ? 0 : 1e6);
+      if (!best || d < best.d) best = { d, n: c.n };
+    }
+    return (best || list[0]).n;
+  }
+
   /* ============ 样式 ============ */
 
   const CSS = `
@@ -221,6 +281,10 @@
     input.num { -moz-appearance: textfield; appearance: textfield; }
     .rate { margin-left: auto; font-size: 11px; color: #8A8D95; font-variant-numeric: tabular-nums; }
     .rate.risky { color: #C8402F; }
+    .qnow { margin-left: auto; font-size: 11px; color: #8A8D95; font-variant-numeric: tabular-nums;
+      max-width: 132px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .qnow.moving { color: #17181C; }
+    .qnow.bad { color: #C8402F; }
 
     /* 按钮 */
     .btn { border: 1px solid transparent; border-radius: 4px; /* taste-skill-ignore 透明边框只为对齐按钮高度 */ cursor: pointer; padding: 8px 10px;
@@ -291,6 +355,7 @@
             <span class="unit">到</span>
             <input class="num to" type="number" min="1" step="1" value="40">
             <span class="unit">题</span>
+            <span class="qnow" title="从页面上读到的题号">现在 ?</span>
           </div>
 
           <div class="row">
@@ -339,7 +404,7 @@
       ans: $('.ans'), card: $('.card'), hint: $('.hint'),
       cntN: $('.cntN'), cntT: $('.cntT'), prog: $('.prog'), progI: $('.prog i'),
       gap: $('.gap'), rate: $('.rate'),
-      from: $('.from'), to: $('.to'),
+      from: $('.from'), to: $('.to'), qnow: $('.qnow'),
       d1: $('.d1'), d2: $('.d2'), d3: $('.d3'),
       up: $('.up'), noenter: $('.noenter'), noarrow: $('.noarrow'),
       go: $('.go'), step: $('.step'), stop: $('.stop'),
@@ -397,6 +462,32 @@
       el.cntT.textContent = suffix;
     }
 
+    // ---- 页面题号：读得到就能自己翻到位 ----
+    let qno = null;
+    let qnoAt = 0;
+
+    function readQno(force) {
+      const now = Date.now();
+      if (!force && now - qnoAt < 250) return qno;   // 页面 MutationObserver 很吵，节流一下
+      qnoAt = now;
+      qno = readQnoFromDom();
+      return qno;
+    }
+
+    function setQnow(v) {
+      el.qnow.textContent = v == null ? '现在 ?' : `现在 第 ${v} 题`;
+      el.qnow.classList.remove('moving', 'bad');
+      el.qnow.title = v == null
+        ? '页面上没找到「第 N 题」，对位只能靠你自己先翻好'
+        : '从页面读到的题号';
+    }
+
+    function refreshQno() {
+      const v = readQno(true);
+      setQnow(v);
+      if (answers.length) showHint(readRange(answers.length), answers.length);
+    }
+
     // ---- 只发第 X 到 Y 题：题号就是答案卡上的序号 ----
     let toAuto = true;   // 「到」还没手动改过，就跟着答案数走
 
@@ -438,8 +529,20 @@
         text = count === 1 ? `只发第 ${r.from} 题` : `只发第 ${r.from}–${r.to} 题，共 ${count} 题`;
       }
       if (skipped) text += (text ? '，' : '') + `其中 ${skipped} 题跳过`;
-      if (r.from > 1) text += (text ? ' · ' : '') + `开跑前先把页面翻到第 ${r.from} 题`;
+
+      // 读得到题号：说清脚本会不会先翻过去；读不到：退回「你自己先翻好」
+      const q = readQno();
+      let warn = false;
+      if (q == null) {
+        if (r.from > 1) text += (text ? ' · ' : '') + `开跑前先把页面翻到第 ${r.from} 题`;
+      } else if (q < r.from) {
+        text += (text ? ' · ' : '') + `会先翻到第 ${r.from} 题`;
+      } else if (q > r.from) {
+        text += (text ? ' · ' : '') + `页面在第 ${q} 题，先翻回第 ${r.from} 题`;
+        warn = true;
+      }
       el.hint.textContent = text;
+      el.hint.classList.toggle('warn', warn);
       return r;
     }
 
@@ -516,6 +619,46 @@
     el.hot.value = hotLabel();
     syncAnswers();
 
+    /* ---- 页面换题时跟着刷新「现在 第 N 题」 ---- */
+    refreshQno();
+    let qTimer = null;
+    try {
+      const qMo = new MutationObserver(() => {
+        if (qTimer) return;
+        qTimer = setTimeout(() => { qTimer = null; refreshQno(); }, 250);
+      });
+      qMo.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    } catch (e) { /* 老浏览器，忽略 */ }
+
+    /* ---- 对位：把页面翻到第 from 题；翻不过去就停下来说清楚，不闷头发错 ---- */
+    async function alignTo(from) {
+      let cur = readQno(true);
+      setQnow(cur);
+      if (cur == null) return { ok: true, cur: null };   // 认不出题号：老规矩，当前这题当起点
+
+      let hops = 0;
+      while (cur < from && hops < 80) {
+        if (state.stop) return { ok: false, msg: '已停止' };
+        setStatus(`对位中 · 现在第 ${cur} 题 → 第 ${from} 题`);
+        el.qnow.classList.add('moving');
+        pressRight();
+        hops++;
+        if (!(await wait(Math.max(200, readCfg().d3)))) return { ok: false, msg: '已停止' };
+        const next = readQno(true);
+        setQnow(next);
+        if (next == null) return { ok: true, cur: null };
+        if (next <= cur) {
+          return { ok: false, msg: `翻不动：还停在第 ${next} 题，站点可能要答完这题才放行` };
+        }
+        cur = next;
+        if (cur > from) {
+          return { ok: false, msg: `翻过头了：现在第 ${cur} 题（起点是第 ${from} 题），手动翻回去，或把起点改成 ${cur}` };
+        }
+      }
+      if (cur === from) return { ok: true, cur };
+      return { ok: false, msg: `页面在第 ${cur} 题，已经过了起点：手动翻回第 ${from} 题，或把「只发」起点改成 ${cur}` };
+    }
+
     /* ---- 一轮按键：字母 → Enter → →；pad 时把这一题补足到「每题间隔」 ---- */
     async function oneQuestion(i, list, cfg, pad) {
       const t0 = Date.now();
@@ -578,6 +721,19 @@
       setProg(0);
       blurPanel();
 
+      // 先对位：页面停在第 1 题、范围从第 5 题开始，就先按 → 翻过去
+      const al = await alignTo(from);
+      if (!al.ok) {
+        state.running = false;
+        state.stop = false;
+        setRunning(false);
+        el.go.textContent = '开始';
+        setStatus(al.msg);
+        syncCount();
+        return;
+      }
+      const blind = from > 1 && al.cur == null;   // 认不出题号，只能把当前这题当起点
+
       let stopped = false;
       for (let k = 0; k < list.length; k++) {
         const abs = from - 1 + k;             // 真实题号（从 0 数）
@@ -602,12 +758,13 @@
       paint(-1);
 
       const span = from === to ? `第 ${from} 题` : `第 ${from}–${to} 题`;
+      const blindNote = blind ? `（没认出题号，按当前这题当第 ${from} 题）` : '';
       if (stopped) {
         setStatus(`已停止 · 停在第 ${state.current + 1} 题`);
       } else if (list.length === all.length) {
-        setStatus(`发完 ${all.length} 题，自己看一遍再提交`);
+        setStatus(`发完 ${all.length} 题，自己看一遍再提交${blindNote}`);
       } else {
-        setStatus(`只发了${span}，自己看一遍再提交`);
+        setStatus(`只发了${span}，自己看一遍再提交${blindNote}`);
       }
       syncCount();
     }
@@ -632,6 +789,17 @@
       paint(i);
       setStatus(`单步 · 第 ${i + 1} 题 · ${ch === SKIP ? '跳过' : ch}`);
       blurPanel();
+
+      // 单步也对位：页面在哪不重要，落到「这一题」再发
+      const al = await alignTo(i + 1);
+      if (!al.ok) {
+        state.running = false;
+        state.stop = false;
+        setRunning(false);
+        paint(-1);
+        setStatus(al.msg);
+        return;
+      }
 
       await oneQuestion(i - (from - 1), list, readCfg(), false);
 
