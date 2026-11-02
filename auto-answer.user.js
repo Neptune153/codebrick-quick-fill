@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.6.2
+// @version      1.6.3
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -396,7 +396,7 @@
             </div>
           </div>
 
-          <div class="status">先「单步」试一题，确认有反应再「开始」</div>
+          <div class="status">建议先「单步」试一题，确认有反应再「开始」</div>
         </div>
       </div>
     `;
@@ -769,13 +769,14 @@
       paint(-1);
 
       const span = from === to ? `第 ${from} 题` : `第 ${from}–${to} 题`;
-      const blindNote = blind ? `（没认出题号，按当前这题当第 ${from} 题）` : '';
+      const countNote = list.length > 1 ? `，共 ${list.length} 题` : '';
+      const blindNote = blind ? ` · 没认出题号，按当前这题当第 ${from} 题` : '';
       if (stopped) {
         setStatus(`已停止 · 停在第 ${state.current + 1} 题`);
       } else if (list.length === all.length) {
-        setStatus(`发完 ${all.length} 题，自己看一遍再提交${blindNote}`);
+        setStatus(`全 ${all.length} 题已发完 · 提交按钮没动${blindNote}`);
       } else {
-        setStatus(`只发了${span}，自己看一遍再提交${blindNote}`);
+        setStatus(`${span}已发完${countNote} · 提交按钮没动${blindNote}`);
       }
       syncCount();
     }
