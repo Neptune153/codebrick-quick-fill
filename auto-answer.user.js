@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.6.1
+// @version      1.6.2
 // @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，可只跑指定题号范围，并从页面读出当前题号自动翻到位。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
@@ -267,8 +267,6 @@
     .cell.cur { background: #C8402F; }
     .cell.cur b, .cell.cur span { color: #fff; }
     .hint { font-size: 11px; color: #6A6E78; line-height: 1.5; margin-top: -4px; min-height: 33px; }
-    .hint.warn { color: #C8402F; }
-    .hint:empty { display: none; }
 
     /* 行 */
     .row { display: flex; align-items: center; gap: 6px; }
@@ -380,6 +378,10 @@
               <input class="num d3" type="number" value="800"><span class="unit">毫秒</span>
             </div>
             <div class="row">
+              <span class="lab" title="对位时每按一次 → 的间隔；太短会赶在页面渲染完之前读数">翻页</span>
+              <input class="num pg" type="number" value="1500"><span class="unit">毫秒/次</span>
+            </div>
+            <div class="row">
               <label class="cb" title="网站若按 key === 'A' 判断，勾上这个"><input class="up" type="checkbox">大写</label>
               <label class="cb" title="有些网站选完直接按 →，不需要 Enter"><input class="noenter" type="checkbox">不发 Enter</label>
               <label class="cb" title="网站若自动跳题，按 → 会跳两题，勾上这个"><input class="noarrow" type="checkbox">不发 →</label>
@@ -405,7 +407,7 @@
       cntN: $('.cntN'), cntT: $('.cntT'), prog: $('.prog'), progI: $('.prog i'),
       gap: $('.gap'), rate: $('.rate'),
       from: $('.from'), to: $('.to'), qnow: $('.qnow'),
-      d1: $('.d1'), d2: $('.d2'), d3: $('.d3'),
+      d1: $('.d1'), d2: $('.d2'), d3: $('.d3'), pg: $('.pg'),
       up: $('.up'), noenter: $('.noenter'), noarrow: $('.noarrow'),
       go: $('.go'), step: $('.step'), stop: $('.stop'),
       selftest: $('.selftest'), reset: $('.reset'), status: $('.status'),
@@ -419,6 +421,7 @@
         localStorage.setItem(STORE, JSON.stringify({
           ans: el.ans.value,
           d1: el.d1.value, d2: el.d2.value, d3: el.d3.value, gap: el.gap.value,
+          pg: el.pg.value,
           up: el.up.checked, noenter: el.noenter.checked, noarrow: el.noarrow.checked,
           set: el.set.classList.contains('open'),
           hot: hot,
@@ -522,6 +525,7 @@
     }
 
     function showHint(r, n) {
+      if (state.running) return;   // 跑起来以后这条就不该再念叨「先翻到第几题」
       const count = r.to - r.from + 1;
       const skipped = answers.slice(r.from - 1, r.to).filter((c) => c === SKIP).length;
       let text = '';
@@ -530,19 +534,16 @@
       }
       if (skipped) text += (text ? '，' : '') + `其中 ${skipped} 题跳过`;
 
-      // 读得到题号：说清脚本会不会先翻过去；读不到：退回「你自己先翻好」
-      const q = readQno();
-      let warn = false;
-      if (q == null) {
-        if (r.from > 1) text += (text ? ' · ' : '') + `开跑前先把页面翻到第 ${r.from} 题`;
-      } else if (q < r.from) {
-        text += (text ? ' · ' : '') + `会先翻到第 ${r.from} 题`;
-      } else if (q > r.from) {
-        text += (text ? ' · ' : '') + `页面在第 ${q} 题，先翻回第 ${r.from} 题`;
-        warn = true;
+      // 只在「脚本确实会动」的前提下补一句；已经过了起点这种，等按下开始由状态栏说
+      if (r.from > 1) {
+        const q = readQno();
+        if (q == null) {
+          text += (text ? ' · ' : '') + `没认出题号，把当前这题当第 ${r.from} 题`;
+        } else if (q < r.from) {
+          text += (text ? ' · ' : '') + `会先翻到第 ${r.from} 题`;
+        }
       }
       el.hint.textContent = text;
-      el.hint.classList.toggle('warn', warn);
       return r;
     }
 
@@ -593,6 +594,7 @@
         d2: Math.max(0, Number(el.d2.value) || 0),
         d3: Math.max(0, Number(el.d3.value) || 0),
         gap: Math.max(0, Number(el.gap.value) || 0),
+        pg: Math.max(0, Number(el.pg.value) || 0),
         upper: el.up.checked,
         noEnter: el.noenter.checked,
         noArrow: el.noarrow.checked,
@@ -609,6 +611,7 @@
         if (c.d2) el.d2.value = c.d2;
         if (c.d3) el.d3.value = c.d3;
         if (c.gap) el.gap.value = c.gap;
+        if (c.pg) el.pg.value = c.pg;
         el.up.checked = !!c.up;
         el.noenter.checked = !!c.noenter;
         el.noarrow.checked = !!c.noarrow;
@@ -639,6 +642,7 @@
       setQnow(cur);
       if (cur == null) return { ok: true, cur: null };   // 认不出题号：老规矩，当前这题当起点
 
+      const hop = Math.max(300, readCfg().pg);   // 每一次 → 之后等多久，让页面渲染完再读数
       let hops = 0;
       while (cur < from && hops < 80) {
         if (state.stop) return { ok: false, msg: '已停止' };
@@ -646,7 +650,7 @@
         el.qnow.classList.add('moving');
         pressRight();
         hops++;
-        if (!(await wait(Math.max(200, readCfg().d3)))) return { ok: false, msg: '已停止' };
+        if (!(await wait(hop))) return { ok: false, msg: '已停止' };
         const next = readQno(true);
         setQnow(next);
         if (next == null) return { ok: true, cur: null };
@@ -658,7 +662,10 @@
           return { ok: false, msg: `翻过头了：现在第 ${cur} 题（起点是第 ${from} 题），手动翻回去，或把起点改成 ${cur}` };
         }
       }
-      if (cur === from) return { ok: true, cur };
+      if (cur === from) {
+        if (hops) await wait(hop);   // 翻到了也再等一下，别赶在题干渲染完之前就按字母
+        return { ok: true, cur };
+      }
       return { ok: false, msg: `页面在第 ${cur} 题，已经过了起点：手动翻回第 ${from} 题，或把「只发」起点改成 ${cur}` };
     }
 
@@ -722,6 +729,7 @@
       setRunning(true);
       el.go.textContent = '运行中';
       setProg(0);
+      el.hint.textContent = '';
       blurPanel();
 
       // 先对位：页面停在第 1 题、范围从第 5 题开始，就先按 → 翻过去
@@ -789,6 +797,7 @@
       state.stop = false;
       state.running = true;
       setRunning(true);
+      el.hint.textContent = '';
       paint(i);
       setStatus(`单步 · 第 ${i + 1} 题 · ${ch === SKIP ? '跳过' : ch}`);
       blurPanel();
@@ -801,6 +810,7 @@
         setRunning(false);
         paint(-1);
         setStatus(al.msg);
+        hintNow();
         return;
       }
 
@@ -812,6 +822,7 @@
       state.stepIndex = i + 1 > to - 1 ? from - 1 : i + 1;
       const did = ch === SKIP ? `跳过第 ${i + 1} 题` : `发了第 ${i + 1} 题（${ch}）`;
       setStatus(`${did}，下一题从第 ${state.stepIndex + 1} 题开始`);
+      hintNow();
     }
 
     /* ---- 自检：发一个 a，看看页面有没有反应 ---- */
@@ -858,7 +869,7 @@
     });
 
     el.ans.addEventListener('input', () => { syncAnswers(); save(); });
-    [el.d1, el.d2, el.d3, el.gap, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
+    [el.d1, el.d2, el.d3, el.gap, el.pg, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
 
     // 范围：输入时只刷新提示，失焦/回车时再夹到合法区间
     el.from.addEventListener('input', hintNow);
