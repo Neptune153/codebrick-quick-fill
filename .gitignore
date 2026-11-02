@@ -1,3 +1,7 @@
-﻿Thumbs.db
+Thumbs.db
 .DS_Store
 *.log
+
+# 本地的测试脚手架与图表工程，不进版本库
+.tmp-test/
+.archify/

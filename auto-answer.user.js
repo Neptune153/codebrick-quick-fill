@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         答题键盘模拟（ABCD → Enter → →）
 // @namespace    https://local.auto-answer
-// @version      1.4.2
-// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题。点左上角「答」圆块或按快捷键打开面板。
+// @version      1.5.0
+// @description  按给定答案自动模拟键盘：字母 → Enter → 右方向键，循环 N 题，也可只跑指定的题号范围。点左上角「答」圆块或按快捷键打开面板。
 // @author       local
 // @match        https://www.codebrick.tech/*
 // @match        https://codebrick.tech/*
@@ -15,13 +15,16 @@
  * 用法
  *   1. 打开 https://www.codebrick.tech/ 的答题页（不用先点题目区域）
  *   2. 点左边那个浮动的「答」圆块，或按 Alt + Shift + A，打开面板
- *   3. 把答案粘进输入框 → 下面会按题号排成一张答案卡，数一下是不是 40 个
- *   4. 点「单步」试一题 → 确认有反应再点「开始」
- *   5. 想停下：点「停止」，或按 Esc
+ *   3. 把答案粘进输入框 → 下面会按题号排成一张答案卡
+ *   4. 只答其中一段：把「范围」改成 从 X 到 Y，脚本只发这一段
+ *      只答不连续的几题：中间用 - 占位，例如 从 13 到 15 + 「C-C」= 只答 13、15
+ *   5. 点「单步」试一题 → 确认有反应再点「开始」
+ *   6. 想停下：点「停止」，或按 Esc
  *
  * 面板
- *   主界面只有「每题间隔」和三个按钮，其余参数都收在「设置」里。
- *   答案卡按 10 列排，每 5 题隔开一点；点某一格可以 A→B→C→D 改答案。
+ *   主界面只有「每题间隔」「范围」和三个按钮，其余参数都收在「设置」里。
+ *   答案卡按 10 列排，每 5 题隔开一点；点某一格可以 A→B→C→D→—(跳过) 改答案。
+ *   范围默认是「从 1 到最后一题」，也就是把答案全部发一遍。
  *
  * 限流
  *   CodeBrick 限「每分钟 30 次」答题。默认每题间隔 2200ms ≈ 27 题/分，
@@ -50,8 +53,8 @@
   window.__autoAnswerLoaded = true;
 
   const STORE = 'dsh-auto-answer-v1';
-  const EXPECT = 40;
   const LETTER_VK = { A: 65, B: 66, C: 67, D: 68 };
+  const SKIP = '-';
   const FONT = '-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif';
 
   const state = { running: false, stop: false, current: 0, stepIndex: 0 };
@@ -133,13 +136,19 @@
 
   /* ============ 答案解析 ============ */
 
+  // 只认 A~D；- _ ? 算「跳过这题」（照常按 →，但不发字母）
   function parseAnswers(text) {
-    let out = '';
+    let raw = '';
     for (const line of String(text || '').split(/\r?\n/)) {
       if (/^\s*#/.test(line)) continue;   // # 开头是注释行
-      out += line;
+      raw += line;
     }
-    return out.toUpperCase().replace(/[^A-D]/g, '').split('').filter(Boolean);
+    const out = [];
+    for (const ch of raw.toUpperCase()) {
+      if (ch >= 'A' && ch <= 'D') out.push(ch);
+      else if (ch === '-' || ch === '_' || ch === '?') out.push(SKIP);
+    }
+    return out;
   }
 
   // 每 5 个一组，中间空格——粘一长串也看得出第几题
@@ -193,15 +202,17 @@
     .cell b { font-size: 9.5px; font-weight: 500; color: #6E747D; line-height: 1.3; font-variant-numeric: tabular-nums; }
     .cell span { font-size: 14px; font-weight: 600; line-height: 1.25; }
     .cell:hover { background: #F1F1EE; }
+    .cell.skip span { color: #B7B9BF; }
     .cell.sent { opacity: .4; }
     .cell.cur { background: #C8402F; }
     .cell.cur b, .cell.cur span { color: #fff; }
-    .hint { font-size: 11px; color: #C8402F; line-height: 1.5; margin-top: -4px; }
+    .hint { font-size: 11px; color: #6A6E78; line-height: 1.5; margin-top: -4px; min-height: 33px; }
+    .hint.warn { color: #C8402F; }
     .hint:empty { display: none; }
 
     /* 行 */
     .row { display: flex; align-items: center; gap: 6px; }
-    .lab { color: #6A6E78; font-size: 11.5px; }
+    .lab { color: #6A6E78; font-size: 11.5px; min-width: 42px; }
     .unit { color: #A6A9B0; font-size: 11px; }
     input.num { width: 54px; background: #F1F1EE; border: 0; border-radius: 4px; padding: 5px 6px; outline: none;
                 color: #17181C; font: 600 12.5px/1.2 ${FONT}; font-variant-numeric: tabular-nums; text-align: center; }
@@ -262,7 +273,7 @@
         </div>
         <div class="prog"><i></i></div>
         <div class="bd">
-          <textarea class="ans" spellcheck="false" placeholder="粘贴答案，只认 A/B/C/D"></textarea>
+          <textarea class="ans" spellcheck="false" placeholder="粘贴答案：A/B/C/D，- 表示这题跳过"></textarea>
           <div class="card empty">粘贴后按题号排开</div>
           <div class="hint"></div>
 
@@ -271,6 +282,15 @@
             <input class="num gap" type="number" value="2200">
             <span class="unit">毫秒</span>
             <span class="rate">≈ 27 题/分</span>
+          </div>
+
+          <div class="row">
+            <span class="lab">只发</span>
+            <span class="unit">第</span>
+            <input class="num from" type="number" min="1" step="1" value="1">
+            <span class="unit">到</span>
+            <input class="num to" type="number" min="1" step="1" value="40">
+            <span class="unit">题</span>
           </div>
 
           <div class="row">
@@ -319,6 +339,7 @@
       ans: $('.ans'), card: $('.card'), hint: $('.hint'),
       cntN: $('.cntN'), cntT: $('.cntT'), prog: $('.prog'), progI: $('.prog i'),
       gap: $('.gap'), rate: $('.rate'),
+      from: $('.from'), to: $('.to'),
       d1: $('.d1'), d2: $('.d2'), d3: $('.d3'),
       up: $('.up'), noenter: $('.noenter'), noarrow: $('.noarrow'),
       go: $('.go'), step: $('.step'), stop: $('.stop'),
@@ -360,7 +381,11 @@
         const n = document.createElement('b');
         n.textContent = String(i + 1);
         const s = document.createElement('span');
-        s.textContent = ch;
+        s.textContent = ch === SKIP ? '—' : ch;
+        if (ch === SKIP) {
+          c.classList.add('skip');
+          c.title = '第 ' + (i + 1) + ' 题跳过（不发字母，照常按 →）';
+        }
         c.append(n, s);
         frag.appendChild(c);
       });
@@ -372,12 +397,55 @@
       el.cntT.textContent = suffix;
     }
 
+    // ---- 只发第 X 到 Y 题：题号就是答案卡上的序号 ----
+    let toAuto = true;   // 「到」还没手动改过，就跟着答案数走
+
+    function readRange(n) {
+      const from = Math.max(1, Math.min(n, Math.round(Number(el.from.value) || 1)));
+      const to = Math.max(from, Math.min(n, Math.round(Number(el.to.value) || n)));
+      return { from, to };
+    }
+
+    function syncRange() {
+      const n = answers.length;
+      if (!n) {
+        setCounter(0, '题');
+        el.hint.textContent = '';
+        if (toAuto) { el.from.value = '1'; el.to.value = '1'; }
+        return { from: 1, to: 1 };
+      }
+      if (toAuto) el.to.value = String(n);
+      const r = readRange(n);
+      el.from.value = String(r.from);
+      el.to.value = String(r.to);
+      setCounter(n, '题');
+      showHint(r, n);
+      return r;
+    }
+
+    // 输入过程中只刷新提示，不把值改回去（改回去会打断输入）
+    function hintNow() {
+      const n = answers.length;
+      if (!n) return;
+      showHint(readRange(n), n);
+    }
+
+    function showHint(r, n) {
+      const count = r.to - r.from + 1;
+      const skipped = answers.slice(r.from - 1, r.to).filter((c) => c === SKIP).length;
+      let text = '';
+      if (count < n) {
+        text = count === 1 ? `只发第 ${r.from} 题` : `只发第 ${r.from}–${r.to} 题，共 ${count} 题`;
+      }
+      if (skipped) text += (text ? '，' : '') + `其中 ${skipped} 题跳过`;
+      if (r.from > 1) text += (text ? ' · ' : '') + `开跑前先把页面翻到第 ${r.from} 题`;
+      el.hint.textContent = text;
+      return r;
+    }
+
     function syncCount() {
       if (state.running) return;
-      setCounter(answers.length, '题');
-      el.hint.textContent = answers.length && answers.length !== EXPECT
-        ? `现在 ${answers.length} 题，不是 ${EXPECT} 题`
-        : '';
+      syncRange();
     }
 
     function paint(active) {
@@ -399,9 +467,19 @@
       el.ans.style.height = Math.min(el.ans.scrollHeight, 96) + "px";
     }
 
+    // 答案一变，范围就回到「全部」——不然上次留下的 13~15 会悄悄把这次也裁短
+    let prevKey = null;
+
     function syncAnswers() {
       autoGrow();
-      answers = parseAnswers(el.ans.value);
+      const next = parseAnswers(el.ans.value);
+      const key = next.join('');
+      if (key !== prevKey) {
+        prevKey = key;
+        el.from.value = '1';
+        toAuto = true;
+      }
+      answers = next;
       renderCard();
       syncCount();
     }
@@ -441,12 +519,15 @@
     /* ---- 一轮按键：字母 → Enter → →；pad 时把这一题补足到「每题间隔」 ---- */
     async function oneQuestion(i, list, cfg, pad) {
       const t0 = Date.now();
-      pressLetter(list[i], cfg.upper);
-      if (!(await wait(cfg.d1))) return false;
+      const ch = list[i];
+      if (ch && ch !== SKIP) {
+        pressLetter(ch, cfg.upper);
+        if (!(await wait(cfg.d1))) return false;
 
-      if (!cfg.noEnter) {
-        pressEnter();
-        if (!(await wait(cfg.d2))) return false;
+        if (!cfg.noEnter) {
+          pressEnter();
+          if (!(await wait(cfg.d2))) return false;
+        }
       }
 
       const isLast = i >= list.length - 1;
@@ -482,32 +563,36 @@
     async function runAll() {
       if (state.running) return;
       syncAnswers();
-      const list = answers.slice();
-      if (!list.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
+      const all = answers.slice();
+      if (!all.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
+
+      const { from, to } = readRange(all.length);
+      const list = all.slice(from - 1, to);   // 只发这一段
 
       save();
       state.running = true;
       state.stop = false;
-      state.current = 0;
+      state.current = from - 1;
       setRunning(true);
       el.go.textContent = '运行中';
       setProg(0);
       blurPanel();
 
       let stopped = false;
-      for (let i = 0; i < list.length; i++) {
-        if (state.stop) { stopped = true; state.current = i; break; }
-        state.current = i;
+      for (let k = 0; k < list.length; k++) {
+        const abs = from - 1 + k;             // 真实题号（从 0 数）
+        if (state.stop) { stopped = true; state.current = abs; break; }
+        state.current = abs;
         const cfg = readCfg();
         const cyc = cfg.gap > 0 ? cfg.gap
           : cfg.d1 + (cfg.noEnter ? 0 : cfg.d2) + (cfg.noArrow ? 0 : cfg.d3);
-        const rest = (list.length - 1 - i) * cyc;
-        setCounter(i + 1, '/ ' + list.length);
-        paint(i);
-        setStatus(`第 ${i + 1}/${list.length} 题 · ${list[i]}` +
+        const rest = (list.length - 1 - k) * cyc;
+        setCounter(abs + 1, '/ ' + to);
+        paint(abs);
+        setStatus(`第 ${abs + 1} 题 · ${list[k] === SKIP ? '跳过' : list[k]}` +
           (rest > 800 ? ` · 约剩 ${Math.ceil(rest / 1000)} 秒` : ''));
-        if (!(await oneQuestion(i, list, cfg, true))) { stopped = true; break; }
-        setProg((i + 1) / list.length);
+        if (!(await oneQuestion(k, list, cfg, true))) { stopped = true; break; }
+        setProg((k + 1) / list.length);
       }
 
       state.running = false;
@@ -516,10 +601,13 @@
       el.go.textContent = '开始';
       paint(-1);
 
+      const span = from === to ? `第 ${from} 题` : `第 ${from}–${to} 题`;
       if (stopped) {
         setStatus(`已停止 · 停在第 ${state.current + 1} 题`);
+      } else if (list.length === all.length) {
+        setStatus(`发完 ${all.length} 题，自己看一遍再提交`);
       } else {
-        setStatus(`发完 ${list.length} 题，自己看一遍再提交`);
+        setStatus(`只发了${span}，自己看一遍再提交`);
       }
       syncCount();
     }
@@ -528,24 +616,31 @@
     async function stepOnce() {
       if (state.running) return;
       syncAnswers();
-      const list = answers.slice();
-      if (!list.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
+      const all = answers.slice();
+      if (!all.length) { setStatus('没有读到 A/B/C/D 答案'); return; }
 
-      const i = Math.min(state.stepIndex, list.length - 1);
+      const { from, to } = readRange(all.length);
+      const list = all.slice(from - 1, to);
+      // 单步的游标落在范围内；走到范围末尾就绕回范围开头
+      if (state.stepIndex < from - 1 || state.stepIndex > to - 1) state.stepIndex = from - 1;
+      const i = state.stepIndex;              // 真实题号（从 0 数）
+      const ch = all[i];
+
       state.stop = false;
       state.running = true;
       setRunning(true);
       paint(i);
-      setStatus(`单步 · 第 ${i + 1} 题 · ${list[i]}`);
+      setStatus(`单步 · 第 ${i + 1} 题 · ${ch === SKIP ? '跳过' : ch}`);
       blurPanel();
 
-      await oneQuestion(i, list, readCfg(), false);
+      await oneQuestion(i - (from - 1), list, readCfg(), false);
 
       state.running = false;
       setRunning(false);
       paint(-1);
-      if (state.stepIndex < list.length - 1) state.stepIndex = i + 1;
-      setStatus(`发了第 ${i + 1} 题（${list[i]}），下一题从第 ${state.stepIndex + 1} 题开始`);
+      state.stepIndex = i + 1 > to - 1 ? from - 1 : i + 1;
+      const did = ch === SKIP ? `跳过第 ${i + 1} 题` : `发了第 ${i + 1} 题（${ch}）`;
+      setStatus(`${did}，下一题从第 ${state.stepIndex + 1} 题开始`);
     }
 
     /* ---- 自检：发一个 a，看看页面有没有反应 ---- */
@@ -585,24 +680,35 @@
     });
     el.selftest.addEventListener('click', selfTest);
     el.reset.addEventListener('click', () => {
-      state.stepIndex = 0;
-      state.current = 0;
-      setStatus('已归零，从第 1 题开始');
+      const { from } = readRange(Math.max(1, answers.length));
+      state.stepIndex = from - 1;
+      state.current = from - 1;
+      setStatus(`已归零，从第 ${from} 题开始`);
     });
 
     el.ans.addEventListener('input', () => { syncAnswers(); save(); });
     [el.d1, el.d2, el.d3, el.gap, el.up, el.noenter, el.noarrow].forEach((n) => n.addEventListener('change', save));
 
-    // 点某一格改答案：A → B → C → D → A
+    // 范围：输入时只刷新提示，失焦/回车时再夹到合法区间
+    el.from.addEventListener('input', hintNow);
+    el.to.addEventListener('input', () => { toAuto = false; hintNow(); });
+    [el.from, el.to].forEach((n) => {
+      n.addEventListener('change', syncRange);
+      n.addEventListener('keydown', (e) => { if (e.key === 'Enter') n.blur(); });
+    });
+
+    // 点某一格改答案：A → B → C → D → —（跳过） → A
     el.card.addEventListener('click', (e) => {
       if (state.running) return;
       const c = e.target.closest ? e.target.closest('.cell') : null;
       if (!c || !c.dataset.i) return;
       const i = Number(c.dataset.i);
-      const cur = answers[i];
-      answers[i] = cur === 'A' ? 'B' : cur === 'B' ? 'C' : cur === 'C' ? 'D' : 'A';
+      const order = ['A', 'B', 'C', 'D', SKIP];
+      const cur = answers[i] || 'A';
+      answers[i] = order[(order.indexOf(cur) + 1) % order.length];
       el.ans.value = fmt(answers);
       renderCard();
+      syncCount();
       save();
     });
 
