@@ -20,9 +20,7 @@ https://raw.githubusercontent.com/Neptune153/codebrick-quick-fill/main/codebrick
 
 ## 更新
 
-改完脚本把 `@version` 调大再推到 main，脚本管理器按自己的「更新间隔」去检查，看到新版本就问你要不要更新。
-
-检查地址写在头部：`@updateURL` 和 `@downloadURL` 都指向这份 `.user.js`。1.8.0 及以前的版本没有这两行，管理器会照惯例去找同目录的 `codebrick-quick-fill.meta.js`，所以仓库里留了一份，用 `node tools/gen-meta.mjs` 从头部生成——改完版本号记得跑一次，别让它和主文件对不上。
+改完脚本把 `@version` 调大再推到 main，脚本管理器按自己的「更新间隔」去检查，看到新版本就问你要不要更新。检查地址由头部的 `@updateURL` 和 `@downloadURL` 指定，都指向这份 `.user.js`。
 
 推完 raw 有几分钟缓存，不想等就在脚本详情里点「检查更新」。
 
