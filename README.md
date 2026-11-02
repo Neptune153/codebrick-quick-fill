@@ -166,7 +166,13 @@ CodeBrick 限每分钟 30 次答题，超了会挡一段时间。
 ```bash
 git log --oneline --decorate
 git tag
-git show v1.7.1:codebrick-quick-fill.user.js > 旧版.user.js
+git show v1.7.1:auto-answer.user.js > 旧版.user.js
 ```
 
 从 `v1.7.1` 及更早的版本升级，答案和配置会自动搬过来，不用重填。
+
+---
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
