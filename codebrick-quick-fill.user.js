@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         码砖速填
 // @namespace    https://github.com/Neptune153/codebrick-quick-fill
-// @version      1.8.1
+// @version      2.0.0
 // @description  在 CodeBrick 答题页批量填答：按已有答案回放 A/B/C/D，可只发指定题号范围，提交仍手动。
 // @author       Neptune153
 // @updateURL    https://raw.githubusercontent.com/Neptune153/codebrick-quick-fill/main/codebrick-quick-fill.user.js
@@ -930,7 +930,7 @@
       if (!isFn && !hasMod) { el.hot.value = '要带 Ctrl/Alt/Shift 或 F1~F12'; return; }
       hot = { code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
       el.hot.value = hotLabel();
-      if (hotBadge) hotBadge.title = '码砖速填 · ' + hotLabel() + ' 打开/收起';
+      if (hotBadge) hotBadge.title = '码砖速填 v' + VER + ' · ' + hotLabel() + ' 打开/收起';
       save();
       setTimeout(() => el.hot.blur(), 150);
     });
@@ -958,6 +958,7 @@
 
   const rootNode = () => document.body || document.documentElement;
 
+  const VER = '2.0.0';     // 只给圆块的 title 用，和头部 @version 一起改
   let hotBadge = null;   // 圆块的 title 要跟着快捷键改
 
   const panel = buildUI();
@@ -968,7 +969,7 @@
   badge.id = 'cqf-badge';
   badge.textContent = '答';
   hotBadge = badge;
-  badge.title = '码砖速填 · ' + hotLabel() + ' 打开/收起';
+  badge.title = '码砖速填 v' + VER + ' · ' + hotLabel() + ' 打开/收起';
   badge.style.cssText =
     'all:initial;position:fixed;top:88px;left:16px;width:28px;height:28px;border-radius:50%;' +
     'background:#17181C;color:#fff;font:600 12px/28px ' + FONT + ';' +
