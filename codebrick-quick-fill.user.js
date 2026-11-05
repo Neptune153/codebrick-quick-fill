@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         码砖速填
 // @namespace    https://github.com/Neptune153/codebrick-quick-fill
-// @version      2.0.0
+// @version      2.0.1
 // @description  在 CodeBrick 答题页批量填答：按已有答案回放 A/B/C/D，可只发指定题号范围，提交仍手动。
 // @author       Neptune153
 // @updateURL    https://raw.githubusercontent.com/Neptune153/codebrick-quick-fill/main/codebrick-quick-fill.user.js
@@ -27,7 +27,7 @@
  *   读不到题号就退回手动：你自己翻好，脚本把当前这题当成范围第一题。
  *
  * 限流
- *   CodeBrick 限每分钟 30 次答题。默认 2200ms 一题约 27 题/分，40 题 88 秒。
+ *   CodeBrick 限每分钟 30 次答题。默认 2050ms 一题约 29 题/分，40 题约 82 秒。
  *   这个间隔从这一题开始按键算起，不够自动补足，所以三个等待时间只会拖慢单题。
  *
  * 说明
@@ -324,9 +324,9 @@
 
           <div class="row">
             <span class="lab">每题间隔</span>
-            <input class="num gap" type="number" value="2200">
+            <input class="num gap" type="number" value="2050">
             <span class="unit">毫秒</span>
-            <span class="rate">≈ 27 题/分</span>
+            <span class="rate">≈ 29 题/分</span>
           </div>
 
           <div class="row">
@@ -354,15 +354,15 @@
             </div>
             <div class="row">
               <span class="lab">Enter 后</span>
-              <input class="num d2" type="number" value="250"><span class="unit">毫秒</span>
+              <input class="num d2" type="number" value="150"><span class="unit">毫秒</span>
             </div>
             <div class="row">
               <span class="lab">→ 后</span>
-              <input class="num d3" type="number" value="800"><span class="unit">毫秒</span>
+              <input class="num d3" type="number" value="150"><span class="unit">毫秒</span>
             </div>
             <div class="row">
               <span class="lab" title="对位时每按一次 → 的间隔；太短会赶在页面渲染完之前读数">翻页</span>
-              <input class="num pg" type="number" value="1500"><span class="unit">毫秒/次</span>
+              <input class="num pg" type="number" value="500"><span class="unit">毫秒/次</span>
             </div>
             <div class="row">
               <label class="cb" title="网站若按 key === 'A' 判断，勾上这个"><input class="up" type="checkbox">大写</label>
@@ -903,7 +903,7 @@
       el.rate.textContent = perMin > 0 ? `≈ ${perMin} 题/分` : '不限速';
       el.rate.classList.toggle('risky', risky);
       el.rate.title = perMin > 0
-        ? `每分钟约 ${perMin} 题` + (risky ? '，接近或超过站点 30 次/分的限额，建议 ≥ 2200 毫秒' : '')
+        ? `每分钟约 ${perMin} 题` + (risky ? '，接近或超过站点 30 次/分的限额，建议 ≥ 2000 毫秒' : '')
         : '不限速，只按设置里的三个等待时间跑';
     };
     el.gap.addEventListener('input', syncRate);
@@ -958,7 +958,7 @@
 
   const rootNode = () => document.body || document.documentElement;
 
-  const VER = '2.0.0';     // 只给圆块的 title 用，和头部 @version 一起改
+  const VER = '2.0.1';     // 只给圆块的 title 用，和头部 @version 一起改
   let hotBadge = null;   // 圆块的 title 要跟着快捷键改
 
   const panel = buildUI();
