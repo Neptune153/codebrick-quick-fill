@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         码砖速填
 // @namespace    https://github.com/Neptune153/codebrick-quick-fill
-// @version      2.0.1
+// @version      2.0.2
 // @description  在 CodeBrick 答题页批量填答：按已有答案回放 A/B/C/D，可只发指定题号范围，提交仍手动。
 // @author       Neptune153
 // @updateURL    https://raw.githubusercontent.com/Neptune153/codebrick-quick-fill/main/codebrick-quick-fill.user.js
@@ -154,6 +154,9 @@
 
   // CodeBrick 把题号写在 article > header 的角标上：
   //   <span class="source-badge sb-real" title="2015 年统考真题 · 第 5 题">真题 2015 · 第 5 题</span>
+  // 模拟卷 / 整卷模式没有真题角标，题干顶上写的是纯文本：
+  //   <div class="q-meta">第 5 题 · 数据结构 · 三方题 …</div>
+  // 这两种都是文字里的「第 N 题」；都没有时再退回读题号导航的当前项。
   // 从最贴近的写法开始试，命中一种就不再往下找，免得被别处的“第 N 题”干扰。
   const Q_RE = /第\s*(\d{1,3})\s*题/;
   const Q_SEL = [
@@ -162,9 +165,42 @@
     '.source-badge',
     '[class*="source-badge"]',
     'article header',
+    '.q-meta',
+    '[class*="q-meta"]',
     '[class*="question-no"]',
     '[class*="qno"]',
   ];
+
+  // 题号导航条（模拟卷 .num-strip / 练习页 .qnumber-rail）里标着当前题的那一格，
+  // 文字就是题号本身。注意不能用 [class*="active"] 这种子串匹配，会命中 inactive。
+  const Q_RAIL_SEL = ['.num-strip', '.qnumber-rail'];
+  const Q_ACTIVE_RE = /(^|\s)(active|is-active|current|is-current|selected)(\s|$)/;
+
+  function qnoFromText(el) {
+    const m = Q_RE.exec((el.getAttribute('title') || '') + ' ' + (el.textContent || ''));
+    return m ? Number(m[1]) : null;
+  }
+
+  function qnoFromCurrent() {
+    for (const box of Q_RAIL_SEL) {
+      const root = document.querySelector(box);
+      if (!root) continue;
+      for (const el of root.querySelectorAll('button, a, [role="button"], li, span')) {
+        if (!Q_ACTIVE_RE.test(String(el.className || ''))) continue;
+        const t = (el.textContent || '').trim();
+        if (/^\d{1,3}$/.test(t)) return Number(t);
+        const byText = qnoFromText(el);
+        if (byText) return byText;
+      }
+    }
+    // 兜底：整页只剩一个「选中的数字按钮」
+    for (const el of document.querySelectorAll('button, a')) {
+      if (!Q_ACTIVE_RE.test(String(el.className || ''))) continue;
+      const t = (el.textContent || '').trim();
+      if (/^\d{1,3}$/.test(t)) return Number(t);
+    }
+    return null;
+  }
 
   function qnoCandidates() {
     const out = [];
@@ -175,8 +211,8 @@
       for (const n of nodes) {
         if (seen.has(n)) continue;
         seen.add(n);
-        const m = Q_RE.exec((n.getAttribute('title') || '') + ' ' + (n.textContent || ''));
-        if (m) out.push({ n: Number(m[1]), el: n });
+        const num = qnoFromText(n);
+        if (num) out.push({ n: num, el: n });
       }
       if (out.length) break;
     }
@@ -186,7 +222,7 @@
   // 好几道题的角标同时挂在 DOM 里时，取离视口中线最近、且真在屏幕上的那个
   function readQnoFromDom() {
     const list = qnoCandidates();
-    if (!list.length) return null;
+    if (!list.length) return qnoFromCurrent();
     if (list.length === 1) return list[0].n;
     const h = window.innerHeight || 800;
     const mid = h / 2;
@@ -958,7 +994,7 @@
 
   const rootNode = () => document.body || document.documentElement;
 
-  const VER = '2.0.1';     // 只给圆块的 title 用，和头部 @version 一起改
+  const VER = '2.0.2';     // 只给圆块的 title 用，和头部 @version 一起改
   let hotBadge = null;   // 圆块的 title 要跟着快捷键改
 
   const panel = buildUI();
